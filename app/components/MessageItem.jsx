@@ -2,12 +2,16 @@ import { auth } from "@/config/firebase";
 
 export default function MessageItem({ message }) {
   const isCurrentUser = message.user === auth.currentUser?.displayName;
-  
-  // Format timestamp if it exists
-  const formattedTimestamp = message.timestamp 
-    ? new Date(message.timestamp).toLocaleString('en-US', {
+
+  // Convert Firebase timestamp to readable format
+  const formattedTimestamp = message.timestamp
+    ? new Date(
+        message.timestamp.seconds * 1000 +
+        message.timestamp.nanoseconds / 1000000
+      ).toLocaleString('en-US', {
         month: 'short',
         day: 'numeric',
+        year: 'numeric',
         hour: 'numeric',
         minute: '2-digit',
         hour12: true
