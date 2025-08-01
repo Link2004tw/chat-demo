@@ -2,6 +2,17 @@ import { auth } from "@/config/firebase";
 
 export default function MessageItem({ message }) {
   const isCurrentUser = message.user === auth.currentUser?.displayName;
+  
+  // Format timestamp if it exists
+  const formattedTimestamp = message.timestamp 
+    ? new Date(message.timestamp).toLocaleString('en-US', {
+        month: 'short',
+        day: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true
+      })
+    : '';
 
   return (
     <div
@@ -17,6 +28,13 @@ export default function MessageItem({ message }) {
         </p>
       )}
       <p>{message.text}</p>
+      {formattedTimestamp && (
+        <p className={`text-xs mt-1 opacity-75 ${
+          isCurrentUser ? 'text-white' : 'text-gray-600 dark:text-gray-400'
+        }`}>
+          {formattedTimestamp}
+        </p>
+      )}
     </div>
   );
 }
