@@ -27,8 +27,8 @@ export default function ChatPage() {
   const [currentUser, setCurrentUser] = useState(null);
 
   const router = useRouter();
-  const searchParams = useParams();
-  const roomName = searchParams.get("room");
+  const params = useParams();
+  const roomName = params?.room || null;
 
   // Auth check
   useEffect(() => {
