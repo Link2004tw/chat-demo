@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter, useParams } from "next/navigation";
 import { auth, db } from "@/config/firebase";
 import {
   addDoc,
@@ -27,7 +27,7 @@ export default function ChatPage() {
   const [currentUser, setCurrentUser] = useState(null);
 
   const router = useRouter();
-  const searchParams = useSearchParams();
+  const searchParams = useParams();
   const roomName = searchParams.get("room");
 
   // Auth check
