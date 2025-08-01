@@ -72,7 +72,7 @@ export default function HomePage() {
         });
       }
 
-      router.push(`/chat?room=${roomName}`);
+      router.push(`/chat/${roomName}`);
     } catch (error) {
       console.error("Error accessing or creating room:", error);
       alert("Failed to enter room.");

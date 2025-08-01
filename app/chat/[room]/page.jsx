@@ -15,7 +15,7 @@ import {
   setDoc,
 } from "firebase/firestore";
 import { onAuthStateChanged, signOut } from "firebase/auth";
-import MessageItem from "../components/MessageItem";
+import MessageItem from "../../components/MessageItem";
 import Cookies from "universal-cookie";
 //hellos
 const cookies = new Cookies();
@@ -29,6 +29,7 @@ export default function ChatPage() {
   const router = useRouter();
   const params = useParams();
   const roomName = params?.room || null;
+  console.log(params);
 
   // Auth check
   useEffect(() => {
