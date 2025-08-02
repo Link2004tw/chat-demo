@@ -1,9 +1,9 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
-import { useRouter } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { auth, db } from "@/config/firebase";
-import { onChildAdded, onValue, ref } from "firebase/database";
+import { ref, onChildAdded, onValue, query, orderByChild, limitToLast, endBefore, get } from "firebase/database";
 import { ArrowUpTrayIcon } from "@heroicons/react/24/outline";
 import { onAuthStateChanged, signOut } from "firebase/auth";
 import MessageItem from "@/app/components/MessageItem";
@@ -22,10 +22,16 @@ export default function ChatPage() {
   const [onlineUsers, setOnlineUsers] = useState([]);
   const [currentUser, setCurrentUser] = useState(null);
   const [isUploading, setIsUploading] = useState(false);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [hasMoreMessages, setHasMoreMessages] = useState(true);
   const fileInputRef = useRef(null);
+  const messagesContainerRef = useRef(null);
+  const oldestTimestampRef = useRef(null);
 
   const router = useRouter();
-  const roomName = "room1"; // Hardcoded for 1 room
+  const params = useParams();
+  const roomName = params.room;
+  const messagesPerPage = 25;
 
   // Auth check
   useEffect(() => {
@@ -40,24 +46,108 @@ export default function ChatPage() {
     return () => unsubscribe();
   }, [router]);
 
-  // Real-time messages
+  // Load initial messages and listen for new ones
   useEffect(() => {
     if (!currentUser) return;
 
-    const messagesRef = `rooms/${roomName}/messages`;
-    const unsubscribe = onChildAdded(
-      ref(db, messagesRef),
-      (snapshot) => {
-        const msg = { ...snapshot.val(), id: snapshot.key };
-        setMessages((prev) => [...prev, msg]);
-      },
-      (error) => {
-        console.error("Error fetching messages:", error);
+    // Load cached messages
+    const cachedMessages = localStorage.getItem(`messages_${roomName}`);
+    if (cachedMessages) {
+      const parsedMessages = JSON.parse(cachedMessages);
+      setMessages(parsedMessages);
+      if (parsedMessages.length > 0) {
+        oldestTimestampRef.current = Math.min(...parsedMessages.map((m) => m.timestamp));
       }
-    );
+    }
+
+    const messagesRef = ref(db, `rooms/${roomName}/messages`);
+    const messagesQuery = query(messagesRef, orderByChild("timestamp"), limitToLast(messagesPerPage));
+
+    const unsubscribe = onChildAdded(messagesQuery, (snapshot) => {
+      const msg = { ...snapshot.val(), id: snapshot.key };
+      if (!msg || !msg.timestamp) {
+        console.warn("Invalid message:", msg);
+        return;
+      }
+      setMessages((prev) => {
+        if (prev.some((m) => m.id === msg.id)) return prev;
+        const updatedMessages = [...prev, msg].sort((a, b) => a.timestamp - b.timestamp);
+        localStorage.setItem(`messages_${roomName}`, JSON.stringify(updatedMessages));
+        oldestTimestampRef.current = updatedMessages[0]?.timestamp || null;
+        return updatedMessages;
+      });
+    }, (error) => {
+      console.error("Error fetching messages:", error);
+    });
 
     return () => unsubscribe();
   }, [currentUser]);
+
+  // Auto-scroll to bottom when new messages arrive
+  useEffect(() => {
+    const container = messagesContainerRef.current;
+    if (!container) return;
+
+    // Only scroll if user is near the bottom (within 100px)
+    const isNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 100;
+    if (isNearBottom && messages.length > 0) {
+      container.scrollTo({
+        top: container.scrollHeight,
+        behavior: "smooth",
+      });
+    }
+  }, [messages]);
+
+  // Load more messages on scroll to top
+  useEffect(() => {
+    if (!currentUser || !hasMoreMessages) return;
+
+    const messagesContainer = messagesContainerRef.current;
+    if (!messagesContainer) return;
+
+    const handleScroll = async () => {
+      if (messagesContainer.scrollTop === 0 && !isLoadingMore) {
+        setIsLoadingMore(true);
+        try {
+          const messagesRef = ref(db, `rooms/${roomName}/messages`);
+          const olderMessagesQuery = query(
+            messagesRef,
+            orderByChild("timestamp"),
+            endBefore(oldestTimestampRef.current),
+            limitToLast(messagesPerPage)
+          );
+          const snapshot = await get(olderMessagesQuery);
+          const olderMessages = [];
+          snapshot.forEach((childSnapshot) => {
+            const msg = { ...childSnapshot.val(), id: childSnapshot.key };
+            if (msg && msg.timestamp) {
+              olderMessages.push(msg);
+            }
+          });
+
+          if (olderMessages.length === 0) {
+            setHasMoreMessages(false);
+            return;
+          }
+
+          setMessages((prev) => {
+            const updatedMessages = [...olderMessages, ...prev].sort((a, b) => a.timestamp - b.timestamp);
+            localStorage.setItem(`messages_${roomName}`, JSON.stringify(updatedMessages));
+            oldestTimestampRef.current = updatedMessages[0]?.timestamp || null;
+            return updatedMessages;
+          });
+        } catch (error) {
+          console.error("Error loading more messages:", error);
+          alert("Failed to load more messages.");
+        } finally {
+          setIsLoadingMore(false);
+        }
+      }
+    };
+
+    messagesContainer.addEventListener("scroll", handleScroll);
+    return () => messagesContainer.removeEventListener("scroll", handleScroll);
+  }, [currentUser, isLoadingMore, hasMoreMessages]);
 
   // Track presence
   useEffect(() => {
@@ -68,7 +158,7 @@ export default function ChatPage() {
       saveData(
         {
           uid: currentUser.uid,
-          displayName: currentUser.displayName,
+          displayName: currentUser.displayName || "Anonymous",
           lastSeen: Date.now(),
         },
         userRef,
@@ -90,32 +180,28 @@ export default function ChatPage() {
 
     return () => {
       clearInterval(interval);
-      saveData(null, userRef, "set"); // Remove user on cleanup
+      saveData(null, userRef, "set");
       window.removeEventListener("beforeunload", handleUnload);
     };
   }, [currentUser]);
 
   // Real-time online users
   useEffect(() => {
-    const onlineUsersRef = `rooms/${roomName}/onlineUsers`;
-    const unsubscribe = onValue(
-      ref(db, onlineUsersRef),
-      (snapshot) => {
-        const users = snapshot.val() || {};
-        const now = Date.now();
-        const activeUsers = Object.values(users)
-          .filter((user) => now - user.lastSeen < 20000)
-          .map((user) => ({
-            uid: user.uid,
-            displayName: user.displayName,
-            lastSeen: user.lastSeen,
-          }));
-        setOnlineUsers(activeUsers);
-      },
-      (error) => {
-        console.error("Error fetching online users:", error);
-      }
-    );
+    const onlineUsersRef = ref(db, `rooms/${roomName}/onlineUsers`);
+    const unsubscribe = onValue(onlineUsersRef, (snapshot) => {
+      const users = snapshot.val() || {};
+      const now = Date.now();
+      const activeUsers = Object.values(users)
+        .filter((user) => user && user.lastSeen && now - user.lastSeen < 20000)
+        .map((user) => ({
+          uid: user.uid,
+          displayName: user.displayName,
+          lastSeen: user.lastSeen,
+        }));
+      setOnlineUsers(activeUsers);
+    }, (error) => {
+      console.error("Error fetching online users:", error);
+    });
 
     return () => unsubscribe();
   }, []);
@@ -130,7 +216,7 @@ export default function ChatPage() {
 
     const message = new Message({
       text: input,
-      user: currentUser.displayName,
+      user: currentUser.displayName || "Anonymous",
       timestamp: Date.now(),
     });
 
@@ -139,6 +225,7 @@ export default function ChatPage() {
       setInput("");
     } catch (error) {
       console.error("Error sending message:", error);
+      alert("Failed to send message.");
     }
   };
 
@@ -161,10 +248,7 @@ export default function ChatPage() {
         return;
       }
 
-      if (
-        !process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME ||
-        !process.env.NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET
-      ) {
+      if (!process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME || !process.env.NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET) {
         throw new Error("Cloudinary configuration missing.");
       }
 
@@ -172,14 +256,8 @@ export default function ChatPage() {
       const uploadType = isImage ? "image" : "auto";
       const formData = new FormData();
       formData.append("file", file);
-      formData.append(
-        "upload_preset",
-        process.env.NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET
-      );
-      formData.append(
-        "cloud_name",
-        process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME
-      );
+      formData.append("upload_preset", process.env.NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET);
+      formData.append("cloud_name", process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME);
       formData.append("folder", `rooms/${roomName}`);
 
       const response = await fetch(
@@ -194,7 +272,7 @@ export default function ChatPage() {
 
       const data = await response.json();
       const message = new ImageMessage({
-        user: currentUser.displayName,
+        user: currentUser.displayName || "Anonymous",
         fileName: file.name,
         fileURL: data.secure_url,
         publicId: data.public_id,
@@ -215,11 +293,16 @@ export default function ChatPage() {
   // Sign out
   const handleSignOut = async () => {
     const userRef = `rooms/${roomName}/onlineUsers/${currentUser.uid}`;
-    await saveData(null, userRef, "set");
-    await signOut(auth);
-    cookies.remove("auth-token");
-    cookies.remove("last-room");
-    router.push("/");
+    try {
+      await saveData(null, userRef, "set");
+      await signOut(auth);
+      cookies.remove("auth-token", { path: "/" });
+      cookies.remove("last-room", { path: "/" });
+      router.push("/");
+    } catch (error) {
+      console.error("Error signing out:", error);
+      alert("Failed to sign out.");
+    }
   };
 
   return (
@@ -248,7 +331,15 @@ export default function ChatPage() {
           ))}
         </ul>
       </div>
-      <div className="flex-1 overflow-y-auto p-4 space-y-2 mb-20">
+      <div
+        ref={messagesContainerRef}
+        className="flex-1 overflow-y-auto p-4 space-y-2 mb-20"
+      >
+        {isLoadingMore && (
+          <div className="text-center text-gray-500 dark:text-gray-400">
+            Loading more messages...
+          </div>
+        )}
         {messages.map((msg) => {
           if (msg.type === "text") {
             return <MessageItem key={msg.id} message={msg} />;
@@ -284,9 +375,7 @@ export default function ChatPage() {
           type="button"
           onClick={handleUpload}
           disabled={isUploading}
-          className={`p-2 rounded-xl bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-white hover:bg-gray-300 dark:hover:bg-gray-600 focus:outline-none transition-colors ${
-            isUploading ? "opacity-50 cursor-not-allowed" : ""
-          }`}
+          className={`p-2 rounded-xl bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-white hover:bg-gray-300 dark:hover:bg-gray-600 focus:outline-none transition-colors ${isUploading ? "opacity-50 cursor-not-allowed" : ""}`}
           aria-label="Upload file"
         >
           {isUploading ? (

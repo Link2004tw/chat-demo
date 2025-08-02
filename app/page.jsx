@@ -109,7 +109,7 @@ export default function HomePage() {
           <TextInput
             ref={inputRef}
             className="w-full"
-            placeholder="Enter 'room1'"
+            placeholder="Enter room name"
           />
           <div className="flex flex-col sm:flex-row gap-2 justify-between">
             <PrimaryButton

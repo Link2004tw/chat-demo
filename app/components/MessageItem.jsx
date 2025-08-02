@@ -1,4 +1,6 @@
 import { formatTimestamp } from "@/utils/timestamp";
+import { ClipboardIcon } from "@heroicons/react/24/outline";
+
 import { auth } from "@/config/firebase";
 import Linkify from "linkify-react";
 
@@ -6,6 +8,20 @@ export default function MessageItem({ message }) {
   const { text, user, timestamp } = message;
   const isCurrentUser = user === auth.currentUser?.displayName;
   const formattedTimestamp = timestamp ? formatTimestamp(timestamp) : null;
+  
+  const handleCopy = async () => {
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(message.text);
+        alert("Message copied to clipboard!");
+      } else {
+        alert("Clipboard not supported in this browser.");
+      }
+    } catch (error) {
+      console.error("Failed to copy message:", error);
+      alert("Failed to copy message.");
+    }
+  };
 
   const renderTextWithLinks = (text) => (
     <Linkify
@@ -44,6 +60,15 @@ export default function MessageItem({ message }) {
           {formattedTimestamp}
         </p>
       )}
+      <div>
+        <button
+          onClick={handleCopy}
+          className="p-1 text-gray-500 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400"
+          aria-label="Copy message"
+        >
+          <ClipboardIcon className="h-5 w-5" />
+        </button>
+      </div>
     </div>
   );
 }
