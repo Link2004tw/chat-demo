@@ -6,17 +6,10 @@ import Auth from "./components/Auth";
 import PrimaryButton from "./components/PrimaryButton";
 import Card from "./components/Card";
 import TextInput from "./components/TextInput";
-import {
-  doc,
-  getDoc,
-  setDoc,
-  deleteDoc,
-  collection,
-  getDocs,
-} from "firebase/firestore";
-import { auth, db } from "@/config/firebase";
+import { auth } from "@/config/firebase";
 import { useRouter } from "next/navigation";
 import { signOut } from "firebase/auth";
+import { getData, saveData } from "@/utils/database";
 
 const cookies = new Cookies();
 
@@ -24,29 +17,27 @@ export default function HomePage() {
   const [isAuth, setIsAuth] = useState(cookies.get("auth-token"));
   const inputRef = useRef();
   const router = useRouter();
+  //const roomName = "room1"; // Hardcoded for 1 room
 
   const handleEnterChat = async () => {
-    const roomName = inputRef.current?.value?.trim();
-    if (!roomName) {
-      alert("Please enter a room name.");
-      return;
-    }
+    const enteredRoomName = inputRef.current?.value?.trim();
+    // if (enteredRoomName !== roomName) {
+    //   alert("Only 'room1' is allowed.");
+    //   return;
+    // }
 
-    const roomDocRef = doc(db, "rooms", roomName);
-    const onlineUsersRef = collection(db, `rooms/${roomName}/onlineUsers`);
     const uid = auth.currentUser?.uid;
-
     if (!uid) {
       alert("User not authenticated.");
       return;
     }
 
     try {
-      // Get current users in the onlineUsers subcollection
-      const onlineUsersSnap = await getDocs(onlineUsersRef);
-      const users = onlineUsersSnap.docs.map((doc) => doc.data());
-      const userIds = users.map((user) => user.uid);
-      const isAlreadyInRoom = users.some((user) => user.uid === uid);
+      // Get current users in the onlineUsers node
+      const users =
+        (await getData(`rooms/${enteredRoomName}/onlineUsers`)) || {};
+      const userIds = Object.keys(users);
+      const isAlreadyInRoom = userIds.includes(uid);
 
       // Check if room has reached the 2-user limit
       if (userIds.length >= 2 && !isAlreadyInRoom) {
@@ -54,28 +45,23 @@ export default function HomePage() {
         return;
       }
 
-      // Check if room document exists
-      const roomSnap = await getDoc(roomDocRef);
-      if (!roomSnap.exists()) {
-        // Create new room if it doesn't exist
-        await setDoc(roomDocRef, {
-          createdAt: new Date(),
-        });
-      }
-
-      // Add user to onlineUsers subcollection if not already present
+      // Add user to onlineUsers node if not already present
       if (!isAlreadyInRoom) {
-        await setDoc(doc(db, `rooms/${roomName}/onlineUsers`, uid), {
-          uid,
-          displayName: auth.currentUser?.displayName || "Anonymous",
-          lastSeen: Date.now(),
-        });
+        await saveData(
+          {
+            uid,
+            displayName: auth.currentUser?.displayName || "Anonymous",
+            lastSeen: Date.now(),
+          },
+          `rooms/${enteredRoomName}/onlineUsers/${uid}`,
+          "set"
+        );
       }
 
       // Store the room name in a cookie for sign-out cleanup
-      cookies.set("last-room", roomName, { path: "/" });
+      cookies.set("last-room", enteredRoomName, { path: "/" });
 
-      router.push(`/chat/${roomName}`);
+      router.push(`/chat/${enteredRoomName}`);
     } catch (error) {
       console.error("Error accessing or creating room:", error);
       alert("Failed to enter room.");
@@ -88,9 +74,8 @@ export default function HomePage() {
 
     if (uid && lastRoom) {
       try {
-        // Remove user from the onlineUsers subcollection of the last room
-        const userDocRef = doc(db, `rooms/${lastRoom}/onlineUsers`, uid);
-        await deleteDoc(userDocRef);
+        // Remove user from the onlineUsers node of the last room
+        await saveData(null, `rooms/${lastRoom}/onlineUsers/${uid}`, "set");
       } catch (error) {
         console.error("Error removing user from room:", error);
       }
@@ -124,7 +109,7 @@ export default function HomePage() {
           <TextInput
             ref={inputRef}
             className="w-full"
-            placeholder="Room name"
+            placeholder="Enter 'room1'"
           />
           <div className="flex flex-col sm:flex-row gap-2 justify-between">
             <PrimaryButton

@@ -1,6 +1,4 @@
-// utils/User.js
-import { doc, setDoc, getDoc } from "firebase/firestore";
-import { db } from "@/config/firebase"; 
+import { getData, saveData } from "@/utils/database";
 
 export default class User {
   constructor(uid, name, email) {
@@ -9,14 +7,28 @@ export default class User {
     this.email = email;
   }
 
+  /**
+   * Creates a User instance from Firebase Authentication user
+   * @param {Object} user - Firebase Auth user object
+   * @returns {User} User instance
+   */
   static fromFirebase(user) {
     return new User(user.uid, user.displayName, user.email);
   }
 
-  static fromFirestoreData(data) {
+  /**
+   * Creates a User instance from RTDB data
+   * @param {Object} data - RTDB user data
+   * @returns {User} User instance
+   */
+  static fromRTDBData(data) {
     return new User(data.uid, data.name, data.email);
   }
 
+  /**
+   * Converts the User instance to an RTDB-compatible object
+   * @returns {Object} RTDB-compatible object
+   */
   toJSON() {
     return {
       uid: this.uid,
@@ -25,18 +37,24 @@ export default class User {
     };
   }
 
-  async saveToFirestore() {
-    const userRef = doc(db, "users", this.uid);
-    await setDoc(userRef, this.toJSON(), { merge: true });
+  /**
+   * Saves the user to RTDB
+   * @returns {Promise<void>}
+   */
+  async saveToRTDB() {
+    await saveData(this.toJSON(), `users/${this.uid}`, "set");
   }
 
+  /**
+   * Fetches a user from RTDB by UID
+   * @param {string} uid - User ID
+   * @returns {Promise<User|null>} User instance or null if not found
+   */
   static async getUser(uid) {
-    const userRef = doc(db, "users", uid);
-    const snap = await getDoc(userRef);
-    if (snap.exists()) {
-      return User.fromFirestoreData(snap.data());
-    } else {
-      return null;
+    const data = await getData(`users/${uid}`);
+    if (data) {
+      return User.fromRTDBData(data);
     }
+    return null;
   }
 }

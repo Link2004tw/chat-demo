@@ -1,34 +1,32 @@
 /**
- * Represents a file message (image or non-image) in Firestore
+ * Represents a file message (image or non-image) for Firebase Realtime Database
  */
-class ImageMessage {
+export default class ImageMessage {
   /**
    * Creates an ImageMessage instance
    * @param {Object} params
-   * @param {string} [params.id] - Firestore document ID (optional)
+   * @param {string} [params.id] - Message ID (optional)
    * @param {string} params.user - Display name of the user who sent the message
-   * @param {string} params.fileName - Original name of the uploaded file
-   * @param {string} params.fileURL - Cloudinary secure_url for the file
-   * @param {string} params.publicId - Cloudinary public_id for potential deletion
-   * @param {Timestamp} params.timestamp - Firestore server timestamp
-   * @param {string[]} [params.seenBy] - Array of user UIDs who have seen the message (optional)
+   * @param {string} params.fileName - Name of the uploaded file
+   * @param {string} params.fileURL - URL of the file in Cloudinary
+   * @param {string} params.publicId - Cloudinary public ID for the file
+   * @param {number} params.timestamp - Unix timestamp in milliseconds
    */
-  constructor({ id, user, fileName, fileURL, publicId, timestamp, seenBy }) {
+  constructor({ id, user, fileName, fileURL, publicId, timestamp }) {
     this.id = id || null;
     this.user = user;
     this.fileName = fileName;
     this.fileURL = fileURL;
     this.publicId = publicId;
     this.type = "file";
-    this.timestamp = timestamp;
-    this.seenBy = seenBy || [];
+    this.timestamp = timestamp || Date.now();
   }
 
   /**
-   * Converts the instance to a Firestore-compatible object
-   * @returns {Object} Firestore-compatible object
+   * Converts the instance to an RTDB-compatible object
+   * @returns {Object} RTDB-compatible object
    */
-  toFirestore() {
+  toRTDB() {
     const data = {
       user: this.user,
       fileName: this.fileName,
@@ -36,7 +34,6 @@ class ImageMessage {
       publicId: this.publicId,
       type: this.type,
       timestamp: this.timestamp,
-      seenBy: this.seenBy,
     };
     if (this.id) {
       data.id = this.id;
@@ -44,5 +41,3 @@ class ImageMessage {
     return data;
   }
 }
-
-export default ImageMessage;

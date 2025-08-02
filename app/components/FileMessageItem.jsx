@@ -1,25 +1,10 @@
+import { formatTimestamp } from "@/utils/timestamp";
 import { auth } from "@/config/firebase";
 
 export default function FileMessageItem({ message }) {
-  const { user, timestamp, fileName, fileURL } = message;
-  const isCurrentUser = auth.currentUser?.displayName === user;
-
-  // Convert Firebase timestamp to readable format
-  const formattedTimestamp = timestamp
-    ? new Date(
-        timestamp.seconds * 1000 + timestamp.nanoseconds / 1000000
-      ).toLocaleString("en-US", {
-        month: "short",
-        day: "numeric",
-        year: "numeric",
-        hour: "numeric",
-        minute: "2-digit",
-        hour12: true,
-      })
-    : "";
-
-  // Check if message is seen by others (exclude current user)
-  const isSeen = isCurrentUser && message.seenBy && message.seenBy.length > 0;
+  const { user, fileName, fileURL, timestamp } = message;
+  const isCurrentUser = user === auth.currentUser?.displayName;
+  const formattedTimestamp = timestamp ? formatTimestamp(timestamp) : null;
 
   return (
     <div
@@ -47,26 +32,15 @@ export default function FileMessageItem({ message }) {
       >
         {fileName}
       </a>
-      <div className="flex justify-between items-baseline mt-1">
-        {formattedTimestamp && (
-          <p
-            className={`text-xs opacity-75 ${
-              isCurrentUser ? "text-white" : "text-gray-600 dark:text-gray-400"
-            }`}
-          >
-            {formattedTimestamp}
-          </p>
-        )}
-        {isSeen && (
-          <span
-            className={`text-xs opacity-75 ${
-              isCurrentUser ? "text-white" : "text-gray-600 dark:text-gray-400"
-            }`}
-          >
-            Seen
-          </span>
-        )}
-      </div>
+      {formattedTimestamp && (
+        <p
+          className={`text-xs opacity-75 mt-1 ${
+            isCurrentUser ? "text-white" : "text-gray-600 dark:text-gray-400"
+          }`}
+        >
+          {formattedTimestamp}
+        </p>
+      )}
     </div>
   );
 }

@@ -1,5 +1,4 @@
-import { db } from "@/config/firebase";
-import { doc, deleteDoc } from "firebase/firestore";
+import { saveData } from "@/utils/database";
 
 export async function POST(req) {
   const { searchParams } = new URL(req.url);
@@ -14,7 +13,7 @@ export async function POST(req) {
   }
 
   try {
-    await deleteDoc(doc(db, `rooms/${room}/onlineUsers`, uid));
+    await saveData(null, `rooms/${room}/onlineUsers/${uid}`, "set");
     return new Response(JSON.stringify({ success: true }), {
       status: 200,
       headers: { "Content-Type": "application/json" },

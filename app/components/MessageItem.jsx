@@ -1,54 +1,25 @@
+import { formatTimestamp } from "@/utils/timestamp";
 import { auth } from "@/config/firebase";
+import Linkify from "linkify-react";
 
 export default function MessageItem({ message }) {
-  const isCurrentUser = message.user === auth.currentUser?.displayName;
+  const { text, user, timestamp } = message;
+  const isCurrentUser = user === auth.currentUser?.displayName;
+  const formattedTimestamp = timestamp ? formatTimestamp(timestamp) : null;
 
-  // Convert Firebase timestamp to readable format
-  const formattedTimestamp = message.timestamp
-    ? new Date(
-        message.timestamp.seconds * 1000 +
-          message.timestamp.nanoseconds / 1000000
-      ).toLocaleString("en-US", {
-        month: "short",
-        day: "numeric",
-        year: "numeric",
-        hour: "numeric",
-        minute: "2-digit",
-        hour12: true,
-      })
-    : "";
-
-  // Function to parse text and convert URLs to clickable links
-  const renderTextWithLinks = (text) => {
-    const urlRegex = /(https?:\/\/[^\s<]+)|(www\.[^\s<]+)/gi;
-    const parts = text.split(urlRegex).filter(Boolean);
-
-    return parts.map((part, index) => {
-      if (part.match(urlRegex)) {
-        const href = part.startsWith("http") ? part : `https://${part}`;
-        return (
-          <a
-            key={index}
-            href={href}
-            target="_blank"
-            rel="noopener noreferrer"
-            className={`${
-              isCurrentUser
-                ? "text-blue-100 hover:underline"
-                : "text-blue-600 dark:text-blue-400 hover:underline"
-            }`}
-            aria-label={`Link to ${part}`}
-          >
-            {part}
-          </a>
-        );
-      }
-      return <span key={index}>{part}</span>;
-    });
-  };
-
-  // Check if message is seen by others (exclude current user)
-  const isSeen = isCurrentUser && message.seenBy && message.seenBy.length > 0;
+  const renderTextWithLinks = (text) => (
+    <Linkify
+      options={{
+        className: isCurrentUser
+          ? "text-blue-100 hover:underline"
+          : "text-blue-600 dark:text-blue-400 hover:underline",
+        target: "_blank",
+        rel: "noopener noreferrer",
+      }}
+    >
+      {text}
+    </Linkify>
+  );
 
   return (
     <div
@@ -60,30 +31,19 @@ export default function MessageItem({ message }) {
     >
       {!isCurrentUser && (
         <p className="font-bold text-xs text-blue-700 dark:text-blue-300 mb-1">
-          {message.user}
+          {user}
         </p>
       )}
-      <p>{renderTextWithLinks(message.text)}</p>
-      <div className="flex justify-between items-baseline mt-1">
-        {formattedTimestamp && (
-          <p
-            className={`text-xs opacity-75 ${
-              isCurrentUser ? "text-white" : "text-gray-600 dark:text-gray-400"
-            }`}
-          >
-            {formattedTimestamp}
-          </p>
-        )}
-        {isSeen && (
-          <span
-            className={`text-xs opacity-75 ${
-              isCurrentUser ? "text-white" : "text-gray-600 dark:text-gray-400"
-            }`}
-          >
-            Seen
-          </span>
-        )}
-      </div>
+      <p>{renderTextWithLinks(text)}</p>
+      {formattedTimestamp && (
+        <p
+          className={`text-xs opacity-75 mt-1 ${
+            isCurrentUser ? "text-white" : "text-gray-600 dark:text-gray-400"
+          }`}
+        >
+          {formattedTimestamp}
+        </p>
+      )}
     </div>
   );
 }
