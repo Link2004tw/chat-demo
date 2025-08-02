@@ -14,23 +14,22 @@
 //   serverTimestamp,
 //   setDoc,
 // } from "firebase/firestore";
-
 // import { ArrowUpTrayIcon } from "@heroicons/react/24/outline";
 // import { onAuthStateChanged, signOut } from "firebase/auth";
 // import MessageItem from "../../components/MessageItem";
 // import ImageMessageItem from "../../components/ImageMessageItem";
+// import FileMessageItem from "../../components/FileMessageItem";
 // import Cookies from "universal-cookie";
-// import ImageMessage from "@/models/imageMessage";
-// //import { configDotenv } from "dotenv";
-// const cookies = new Cookies();
+// import ImageMessage from "@/models/imageMessage"; //from "../../models/ImageMessage";
 
-// //configDotenv();
+// const cookies = new Cookies();
 
 // export default function ChatPage() {
 //   const [messages, setMessages] = useState([]);
 //   const [input, setInput] = useState("");
 //   const [onlineUsers, setOnlineUsers] = useState([]);
 //   const [currentUser, setCurrentUser] = useState(null);
+//   const [isUploading, setIsUploading] = useState(false);
 //   const fileInputRef = useRef(null);
 
 //   const router = useRouter();
@@ -52,7 +51,6 @@
 
 //   // Real-time messages
 //   const messagesRef = collection(db, `rooms/${roomName}/messages`);
-
 //   useEffect(() => {
 //     if (!roomName) return;
 
@@ -123,7 +121,7 @@
 //   if (!roomName) return <p>Room not specified.</p>;
 //   if (!currentUser) return <p>Loading...</p>;
 
-//   // Send message
+//   // Send text message
 //   const sendMessage = async (e) => {
 //     e.preventDefault();
 //     if (!input.trim()) return;
@@ -137,16 +135,18 @@
 //     setInput("");
 //   };
 
-//   // File upload handler
+//   // Trigger file input when upload button is clicked
 //   const handleUpload = () => {
-//     //console.log("hiiii");
+//     if (isUploading) return;
 //     fileInputRef.current?.click();
 //   };
 
+//   // Handle file selection and upload to Cloudinary
 //   const handleFileChange = async (e) => {
 //     const file = e.target.files[0];
 //     if (!file) return;
 
+//     setIsUploading(true);
 //     try {
 //       // Validate file size (max 10MB)
 //       const maxSize = 10 * 1024 * 1024; // 10MB
@@ -155,11 +155,19 @@
 //         return;
 //       }
 
-//       // Validate file type
-//       if (!file.type.startsWith("image/")) {
-//         alert("Please select an image file (e.g., PNG, JPEG, GIF).");
-//         return;
+//       // Check for environment variables
+//       if (
+//         !process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME ||
+//         !process.env.NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET
+//       ) {
+//         throw new Error(
+//           "Cloudinary configuration missing. Please check environment variables."
+//         );
 //       }
+
+//       // Determine if file is an image
+//       const isImage = file.type.startsWith("image/");
+//       const uploadType = isImage ? "image" : "auto";
 
 //       // Prepare FormData for Cloudinary upload
 //       const formData = new FormData();
@@ -176,7 +184,7 @@
 
 //       // Upload to Cloudinary
 //       const response = await fetch(
-//         `https://api.cloudinary.com/v1_1/${process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME}/image/upload`,
+//         `https://api.cloudinary.com/v1_1/${process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME}/${uploadType}/upload`,
 //         {
 //           method: "POST",
 //           body: formData,
@@ -189,9 +197,10 @@
 //       }
 
 //       const data = await response.json();
-
-//       // Create ImageMessage instance
-//       const imageMessage = new ImageMessage({
+//       console.log("data: ");
+//       console.log(data);
+//       // Create ImageMessage instance (used for both image and non-image files)
+//       const message = new ImageMessage({
 //         user: currentUser.displayName,
 //         fileName: file.name,
 //         fileURL: data.secure_url,
@@ -200,13 +209,15 @@
 //       });
 
 //       // Save to Firestore
-//       await addDoc(messagesRef, imageMessage.toFirestore());
+//       await addDoc(messagesRef, message.toFirestore());
 
 //       // Reset file input
 //       fileInputRef.current.value = "";
 //     } catch (error) {
 //       console.error("File upload failed:", error);
 //       alert(`Failed to upload file: ${error.message}`);
+//     } finally {
+//       setIsUploading(false);
 //     }
 //   };
 
@@ -220,6 +231,7 @@
 //     await deleteDoc(userDocRef);
 //     await signOut(auth);
 //     cookies.remove("auth-token");
+//     cookies.remove("last-room");
 //     router.push("/");
 //   };
 
@@ -255,13 +267,19 @@
 
 //       {/* Messages */}
 //       <div className="flex-1 overflow-y-auto p-4 space-y-2 mb-20">
-//         {messages.map((msg) =>
-//           msg.type === "file" ? (
-//             <ImageMessageItem key={msg.id} message={msg} />
-//           ) : (
-//             <MessageItem key={msg.id} message={msg} />
-//           )
-//         )}
+//         {messages.map((msg) => {
+//           if (msg.type === "text") {
+//             return <MessageItem key={msg.id} message={msg} />;
+//           } else if (msg.type === "file") {
+//             const isImage = /\.(png|jpe?g|gif|webp)$/i.test(msg.fileName);
+//             return isImage ? (
+//               <ImageMessageItem key={msg.id} message={msg} />
+//             ) : (
+//               <FileMessageItem key={msg.id} message={msg} />
+//             );
+//           }
+//           return null;
+//         })}
 //       </div>
 
 //       {/* Input */}
@@ -278,18 +296,24 @@
 //         />
 //         <input
 //           type="file"
-//           accept="image/*"
 //           ref={fileInputRef}
 //           className="hidden"
 //           onChange={handleFileChange}
 //         />
 //         <button
 //           type="button"
-//           className="p-2 rounded-xl bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-white hover:bg-gray-300 dark:hover:bg-gray-600 focus:outline-none transition-colors"
-//           aria-label="Upload file"
 //           onClick={handleUpload}
+//           disabled={isUploading}
+//           className={`p-2 rounded-xl bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-white hover:bg-gray-300 dark:hover:bg-gray-600 focus:outline-none transition-colors ${
+//             isUploading ? "opacity-50 cursor-not-allowed" : ""
+//           }`}
+//           aria-label="Upload file"
 //         >
-//           <ArrowUpTrayIcon className="h-6 w-6" />
+//           {isUploading ? (
+//             <span className="text-sm">Uploading...</span>
+//           ) : (
+//             <ArrowUpTrayIcon className="h-6 w-6" />
+//           )}
 //         </button>
 //         <button
 //           type="submit"
@@ -316,7 +340,9 @@ import {
   orderBy,
   query,
   serverTimestamp,
-  setDoc,
+  updateDoc,
+  arrayUnion,
+  setDoc
 } from "firebase/firestore";
 import { ArrowUpTrayIcon } from "@heroicons/react/24/outline";
 import { onAuthStateChanged, signOut } from "firebase/auth";
@@ -324,7 +350,8 @@ import MessageItem from "../../components/MessageItem";
 import ImageMessageItem from "../../components/ImageMessageItem";
 import FileMessageItem from "../../components/FileMessageItem";
 import Cookies from "universal-cookie";
-import ImageMessage from "@/models/imageMessage"; //from "../../models/ImageMessage";
+import ImageMessage from "@/models/imageMessage";
+import Message from "@/models/message";
 
 const cookies = new Cookies();
 
@@ -353,18 +380,31 @@ export default function ChatPage() {
     return () => unsubscribe();
   }, [router]);
 
-  // Real-time messages
+  // Real-time messages and update seenBy
   const messagesRef = collection(db, `rooms/${roomName}/messages`);
   useEffect(() => {
-    if (!roomName) return;
+    if (!roomName || !currentUser) return;
 
     const q = query(messagesRef, orderBy("timestamp"));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
+    const unsubscribe = onSnapshot(q, async (snapshot) => {
       const msgs = snapshot.docs.map((doc) => ({ ...doc.data(), id: doc.id }));
       setMessages(msgs);
+
+      // Update seenBy for messages
+      const now = Date.now();
+      for (const msg of msgs) {
+        if (
+          msg.user !== currentUser.displayName &&
+          (!msg.seenBy || !msg.seenBy.includes(currentUser.uid))
+        ) {
+          await updateDoc(doc(db, `rooms/${roomName}/messages`, msg.id), {
+            seenBy: arrayUnion(currentUser.uid),
+          }).catch((error) => console.error("Error updating seenBy:", error));
+        }
+      }
     });
     return () => unsubscribe();
-  }, [roomName]);
+  }, [roomName, currentUser]);
 
   // Track presence
   useEffect(() => {
@@ -430,12 +470,14 @@ export default function ChatPage() {
     e.preventDefault();
     if (!input.trim()) return;
 
-    await addDoc(messagesRef, {
+    const message = new Message({
       text: input,
       user: currentUser.displayName,
       timestamp: serverTimestamp(),
-      type: "text",
+      seenBy: [],
     });
+
+    await addDoc(messagesRef, message.toFirestore());
     setInput("");
   };
 
@@ -453,7 +495,7 @@ export default function ChatPage() {
     setIsUploading(true);
     try {
       // Validate file size (max 10MB)
-      const maxSize = 10 * 1024 * 1024; // 10MB
+      const maxSize = 10 * 1024 * 1024;
       if (file.size > maxSize) {
         alert("File size exceeds 10MB limit.");
         return;
@@ -501,15 +543,15 @@ export default function ChatPage() {
       }
 
       const data = await response.json();
-      console.log("data: ");
-      console.log(data);
-      // Create ImageMessage instance (used for both image and non-image files)
+
+      // Create ImageMessage instance
       const message = new ImageMessage({
         user: currentUser.displayName,
         fileName: file.name,
         fileURL: data.secure_url,
         publicId: data.public_id,
         timestamp: serverTimestamp(),
+        seenBy: [],
       });
 
       // Save to Firestore
@@ -541,7 +583,6 @@ export default function ChatPage() {
 
   return (
     <div className="h-screen flex flex-col bg-gray-100 dark:bg-gray-900">
-      {/* Navbar */}
       <div className="fixed top-0 left-0 right-0 z-10 p-4 bg-blue-600 text-white text-lg font-semibold flex justify-between items-center">
         <span>Chat Room: {roomName}</span>
         <button
@@ -551,8 +592,6 @@ export default function ChatPage() {
           Sign Out
         </button>
       </div>
-
-      {/* Online Users */}
       <div className="mt-16 pt-4 px-4 text-sm text-gray-800 dark:text-gray-200">
         <h2 className="font-semibold mb-1">
           Online Users ({onlineUsers.length})
@@ -568,8 +607,6 @@ export default function ChatPage() {
           ))}
         </ul>
       </div>
-
-      {/* Messages */}
       <div className="flex-1 overflow-y-auto p-4 space-y-2 mb-20">
         {messages.map((msg) => {
           if (msg.type === "text") {
@@ -585,8 +622,6 @@ export default function ChatPage() {
           return null;
         })}
       </div>
-
-      {/* Input */}
       <form
         onSubmit={sendMessage}
         className="fixed bottom-0 left-0 right-0 p-4 border-t bg-white dark:bg-gray-800 flex gap-2"

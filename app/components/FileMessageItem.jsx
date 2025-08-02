@@ -18,6 +18,9 @@ export default function FileMessageItem({ message }) {
       })
     : "";
 
+  // Check if message is seen by others (exclude current user)
+  const isSeen = isCurrentUser && message.seenBy && message.seenBy.length > 0;
+
   return (
     <div
       className={`max-w-xs px-4 py-2 rounded-xl text-sm break-words ${
@@ -44,15 +47,26 @@ export default function FileMessageItem({ message }) {
       >
         {fileName}
       </a>
-      {formattedTimestamp && (
-        <p
-          className={`text-xs mt-1 opacity-75 ${
-            isCurrentUser ? "text-white" : "text-gray-600 dark:text-gray-400"
-          }`}
-        >
-          {formattedTimestamp}
-        </p>
-      )}
+      <div className="flex justify-between items-baseline mt-1">
+        {formattedTimestamp && (
+          <p
+            className={`text-xs opacity-75 ${
+              isCurrentUser ? "text-white" : "text-gray-600 dark:text-gray-400"
+            }`}
+          >
+            {formattedTimestamp}
+          </p>
+        )}
+        {isSeen && (
+          <span
+            className={`text-xs opacity-75 ${
+              isCurrentUser ? "text-white" : "text-gray-600 dark:text-gray-400"
+            }`}
+          >
+            Seen
+          </span>
+        )}
+      </div>
     </div>
   );
 }
