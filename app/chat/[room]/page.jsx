@@ -139,7 +139,7 @@ export default function ChatPage() {
 
   // File upload handler
   const handleUpload = () => {
-    console.log("hiiii");
+    //console.log("hiiii");
     fileInputRef.current?.click();
   };
 
