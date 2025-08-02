@@ -42,3 +42,37 @@ export default function MessageItem({ message }) {
     </div>
   );
 }
+
+// import { format } from "date-fns";
+
+// export default function MessageItem({ message }) {
+//   const { text, user, timestamp, type, fileName, fileURL } = message;
+//   const formattedTime = timestamp
+//     ? format(new Date(timestamp.toDate()), "MMM d, yyyy h:mm a")
+//     : "Sending...";
+
+//   return (
+//     <div className="flex flex-col p-3 rounded-lg bg-white dark:bg-gray-800 shadow">
+//       <div className="flex justify-between items-baseline">
+//         <span className="font-semibold text-gray-900 dark:text-white">
+//           {user}
+//         </span>
+//         <span className="text-xs text-gray-500 dark:text-gray-400">
+//           {formattedTime}
+//         </span>
+//       </div>
+//       {type === "text" ? (
+//         <p className="text-gray-800 dark:text-gray-200">{text}</p>
+//       ) : (
+//         <a
+//           href={fileURL}
+//           target="_blank"
+//           rel="noopener noreferrer"
+//           className="text-blue-600 dark:text-blue-400 hover:underline"
+//         >
+//           {fileName}
+//         </a>
+//       )}
+//     </div>
+//   );
+// }
