@@ -16,10 +16,20 @@ import { saveData } from "@/utils/database";
 
 const cookies = new Cookies();
 
+// Debounce utility function
+const debounce = (func, wait) => {
+  let timeout;
+  return (...args) => {
+    clearTimeout(timeout);
+    timeout = setTimeout(() => func(...args), wait);
+  };
+};
+
 export default function ChatPage() {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [onlineUsers, setOnlineUsers] = useState([]);
+  const [typingUsers, setTypingUsers] = useState([]);
   const [currentUser, setCurrentUser] = useState(null);
   const [isUploading, setIsUploading] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
@@ -27,11 +37,26 @@ export default function ChatPage() {
   const fileInputRef = useRef(null);
   const messagesContainerRef = useRef(null);
   const oldestTimestampRef = useRef(null);
+  const typingTimeoutRef = useRef(null);
 
   const router = useRouter();
   const params = useParams();
   const roomName = params.room;
   const messagesPerPage = 25;
+
+  // Debounced typing status update
+  const updateTypingStatus = debounce(() => {
+    if (!currentUser || !input.trim()) return;
+    saveData(
+      {
+        uid: currentUser.uid,
+        displayName: currentUser.displayName || "Anonymous",
+        timestamp: Date.now(),
+      },
+      `rooms/${roomName}/typingUsers/${currentUser.uid}`,
+      "set"
+    );
+  }, 500);
 
   // Auth check
   useEffect(() => {
@@ -88,7 +113,6 @@ export default function ChatPage() {
     const container = messagesContainerRef.current;
     if (!container) return;
 
-    // Only scroll if user is near the bottom (within 100px)
     const isNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 100;
     if (isNearBottom && messages.length > 0) {
       container.scrollTo({
@@ -166,7 +190,7 @@ export default function ChatPage() {
       );
 
     updatePresence();
-    const interval = setInterval(updatePresence, 30000); // Update every 30 seconds
+    const interval = setInterval(updatePresence, 30000);
 
     const handleUnload = () => {
       if (currentUser?.uid) {
@@ -206,6 +230,54 @@ export default function ChatPage() {
     return () => unsubscribe();
   }, []);
 
+  // Track typing status
+  useEffect(() => {
+    if (!currentUser) return;
+
+    const typingRef = ref(db, `rooms/${roomName}/typingUsers`);
+    const unsubscribe = onValue(typingRef, (snapshot) => {
+      const typingData = snapshot.val() || {};
+      const now = Date.now();
+      const activeTypers = Object.values(typingData)
+        .filter((user) => user && user.timestamp && now - user.timestamp < 5000)
+        .map((user) => ({
+          uid: user.uid,
+          displayName: user.displayName,
+        }))
+        .filter((user) => user.uid !== currentUser.uid);
+      setTypingUsers(activeTypers);
+    }, (error) => {
+      console.error("Error fetching typing users:", error);
+    });
+
+    return () => unsubscribe();
+  }, [currentUser]);
+
+  // Update typing status on input change
+  const handleInputChange = (e) => {
+    setInput(e.target.value);
+    updateTypingStatus();
+    if (typingTimeoutRef.current) {
+      clearTimeout(typingTimeoutRef.current);
+    }
+    typingTimeoutRef.current = setTimeout(() => {
+      saveData(null, `rooms/${roomName}/typingUsers/${currentUser.uid}`, "set");
+    }, 5000);
+  };
+
+  // Cleanup typing status on unmount
+  useEffect(() => {
+    return () => {
+      if (currentUser) {
+        const typingRef = `rooms/${roomName}/typingUsers/${currentUser.uid}`;
+        saveData(null, typingRef, "set");
+      }
+      if (typingTimeoutRef.current) {
+        clearTimeout(typingTimeoutRef.current);
+      }
+    };
+  }, [currentUser]);
+
   // Early returns
   if (!currentUser) return <p>Loading...</p>;
 
@@ -223,6 +295,11 @@ export default function ChatPage() {
     try {
       await saveData(message.toRTDB(), `rooms/${roomName}/messages`, "push");
       setInput("");
+      const typingRef = `rooms/${roomName}/typingUsers/${currentUser.uid}`;
+      saveData(null, typingRef, "set");
+      if (typingTimeoutRef.current) {
+        clearTimeout(typingTimeoutRef.current);
+      }
     } catch (error) {
       console.error("Error sending message:", error);
       alert("Failed to send message.");
@@ -293,11 +370,12 @@ export default function ChatPage() {
   // Sign out
   const handleSignOut = async () => {
     const userRef = `rooms/${roomName}/onlineUsers/${currentUser.uid}`;
+    const typingRef = `rooms/${roomName}/typingUsers/${currentUser.uid}`;
     try {
-      await saveData(null, userRef, "set");
-      //await signOut(auth);
-      //cookies.remove("auth-token", { path: "/" });
-      //cookies.remove("last-room", { path: "/" });
+      await Promise.all([
+        saveData(null, userRef, "set"),
+        saveData(null, typingRef, "set"),
+      ]);
       router.push("/");
     } catch (error) {
       console.error("Error signing out:", error);
@@ -316,7 +394,7 @@ export default function ChatPage() {
           Leave Room
         </button>
       </div>
-      <div className="mt-16 pt-4 px-4 text-sm text-gray-800 dark:text-gray-200">
+      <div className="fixed top-16 left-0 right-0 z-10 p-4 bg-gray-100 dark:bg-gray-900 text-sm text-gray-800 dark:text-gray-200 border-b border-gray-300 dark:border-gray-600">
         <h2 className="font-semibold mb-1">
           Online Users ({onlineUsers.length})
         </h2>
@@ -330,10 +408,25 @@ export default function ChatPage() {
             </li>
           ))}
         </ul>
+        {typingUsers.length > 0 && (
+          <div className="mt-2">
+            <h2 className="font-semibold mb-1">Typing...</h2>
+            <ul className="flex gap-2 flex-wrap">
+              {typingUsers.map((user) => (
+                <li
+                  key={user.uid}
+                  className="px-3 py-1 bg-blue-100 dark:bg-blue-800 text-blue-800 dark:text-blue-200 rounded-full text-xs"
+                >
+                  {user.displayName}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
       </div>
       <div
         ref={messagesContainerRef}
-        className="flex-1 overflow-y-auto p-4 space-y-2 mb-20"
+        className="flex-1 overflow-y-auto p-4 space-y-2 mt-32 mb-20" // Adjusted mt-32 to account for header + online users height
       >
         {isLoadingMore && (
           <div className="text-center text-gray-500 dark:text-gray-400">
@@ -363,7 +456,7 @@ export default function ChatPage() {
           className="flex-1 px-4 py-2 rounded-xl border border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none"
           placeholder="Type your message..."
           value={input}
-          onChange={(e) => setInput(e.target.value)}
+          onChange={handleInputChange}
         />
         <input
           type="file"
