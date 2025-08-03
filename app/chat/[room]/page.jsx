@@ -3,9 +3,9 @@
 import { useEffect, useState, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { auth, db } from "@/config/firebase";
-import { ref, onChildAdded, onValue, query, orderByChild, limitToLast, endBefore, get } from "firebase/database";
+import { ref, onChildAdded, onValue, query, orderByChild, limitToLast, endBefore, get, serverTimestamp } from "firebase/database";
 import { ArrowUpTrayIcon } from "@heroicons/react/24/outline";
-import { onAuthStateChanged, signOut } from "firebase/auth";
+import { onAuthStateChanged } from "firebase/auth";
 import MessageItem from "@/app/components/MessageItem";
 import ImageMessageItem from "@/app/components/ImageMessageItem";
 import FileMessageItem from "@/app/components/FileMessageItem";
@@ -217,7 +217,7 @@ export default function ChatPage() {
     const message = new Message({
       text: input,
       user: currentUser.displayName || "Anonymous",
-      timestamp: Date.now(),
+      timestamp: serverTimestamp(),
     });
 
     try {
@@ -295,9 +295,9 @@ export default function ChatPage() {
     const userRef = `rooms/${roomName}/onlineUsers/${currentUser.uid}`;
     try {
       await saveData(null, userRef, "set");
-      await signOut(auth);
-      cookies.remove("auth-token", { path: "/" });
-      cookies.remove("last-room", { path: "/" });
+      //await signOut(auth);
+      //cookies.remove("auth-token", { path: "/" });
+      //cookies.remove("last-room", { path: "/" });
       router.push("/");
     } catch (error) {
       console.error("Error signing out:", error);
@@ -313,7 +313,7 @@ export default function ChatPage() {
           onClick={handleSignOut}
           className="px-5 py-2 rounded-md bg-red-500 hover:bg-red-600 text-sm font-bold"
         >
-          Sign Out
+          Leave Room
         </button>
       </div>
       <div className="mt-16 pt-4 px-4 text-sm text-gray-800 dark:text-gray-200">

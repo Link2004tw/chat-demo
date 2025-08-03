@@ -17,14 +17,10 @@ export default function HomePage() {
   const [isAuth, setIsAuth] = useState(cookies.get("auth-token"));
   const inputRef = useRef();
   const router = useRouter();
-  //const roomName = "room1"; // Hardcoded for 1 room
-
+  
   const handleEnterChat = async () => {
     const enteredRoomName = inputRef.current?.value?.trim();
-    // if (enteredRoomName !== roomName) {
-    //   alert("Only 'room1' is allowed.");
-    //   return;
-    // }
+    
 
     const uid = auth.currentUser?.uid;
     if (!uid) {

@@ -11,3 +11,4 @@ export function formatTimestamp(timestamp) {
     hour12: true, // e.g., "12:30 PM"
   });
 }
+
