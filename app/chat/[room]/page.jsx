@@ -276,7 +276,7 @@ export default function ChatPage() {
         fileName: file.name,
         fileURL: data.secure_url,
         publicId: data.public_id,
-        timestamp: Date.now(),
+        timestamp: serverTimestamp(),
       });
 
       await saveData(message.toRTDB(), `rooms/${roomName}/messages`, "push");
