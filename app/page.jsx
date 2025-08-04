@@ -252,8 +252,9 @@ export default function HomePage() {
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       const token = cookies.get("auth-token");
-      console.log(user);
+      console.log(user, token);
       if (user && token) {
+        console.log("I registered the user");
         setIsAuth(true);
         setCurrentUser(user);
       } else {
@@ -286,11 +287,13 @@ export default function HomePage() {
 
   const joinRoom = async (roomName, retry = 0) => {
     const maxRetries = 2;
+
     if (!roomName) {
       alert("Please enter a room name.");
       return;
     }
-
+    console.log("the curr user is")
+    console.log(currentUser)
     if (!currentUser) {
       alert("User not authenticated. Please sign in again.");
       setIsAuth(false);
