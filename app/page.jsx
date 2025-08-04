@@ -252,6 +252,7 @@ export default function HomePage() {
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       const token = cookies.get("auth-token");
+      console.log(user);
       if (user && token) {
         setIsAuth(true);
         setCurrentUser(user);

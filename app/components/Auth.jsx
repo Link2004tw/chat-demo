@@ -40,6 +40,7 @@ export default function Auth({ setAuth }) {
       }
 
       const token = result.user.refreshToken;
+      console.log(token);
       cookies.set("auth-token", token);
       setAuth(true);
     } catch (err) {
