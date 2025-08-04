@@ -265,7 +265,7 @@ export default function HomePage() {
       }
     });
     return () => unsubscribe();
-  }, []);
+  }, [cookies.get("auth-token")]);
 
   useEffect(() => {
     const storedRooms = localStorage.getItem("recentRooms");
