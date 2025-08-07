@@ -21,7 +21,7 @@ export default function MediaPage() {
   const roomName = params.room;
 
   const handleReply = (messageId) => {
-    router.push(`/chat/${roomName}?replyTo=${messageId}`);
+    router.push(`/rooms/${roomName}?replyTo=${messageId}`);
   };
 
   useEffect(() => {
@@ -65,7 +65,7 @@ export default function MediaPage() {
   }, [currentUser, roomName]);
 
   const handleBackToChat = () => {
-    router.push(`/chat/${roomName}`);
+    router.push(`/rooms/${roomName}`);
   };
 
   if (!currentUser)
@@ -75,7 +75,7 @@ export default function MediaPage() {
 
   return (
     <div className="h-screen flex flex-col bg-gray-100 dark:bg-gray-900">
-      <div className="fixed top-0 left-0 right-0 z-10 p-4 bg-blue-600 text-white text-lg font-semibold flex justify-between items-center">
+      <div className="fixed top-0 left-0 right-0 z-20 p-4 bg-blue-600 text-white text-lg font-semibold flex justify-between items-center">
         <span>Media: {roomName}</span>
         <OutlinedButton
           variant="secondary"
