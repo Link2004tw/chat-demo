@@ -45,6 +45,7 @@
 //   const [isUploading, setIsUploading] = useState(false);
 //   const [isLoadingMore, setIsLoadingMore] = useState(false);
 //   const [hasMoreMessages, setHasMoreMessages] = useState(true);
+//   const [isInitialLoad, setIsInitialLoad] = useState(true);
 //   const fileInputRef = useRef(null);
 //   const messagesContainerRef = useRef(null);
 //   const oldestTimestampRef = useRef(null);
@@ -54,6 +55,16 @@
 //   const params = useParams();
 //   const roomName = params.room;
 //   const messagesPerPage = 25;
+
+//   const scrollToBottom = (behavior = "smooth") => {
+//     const container = messagesContainerRef.current;
+//     if (container && messages.length > 0) {
+//       container.scrollTo({
+//         top: container.scrollHeight,
+//         behavior,
+//       });
+//     }
+//   };
 
 //   const updateTypingStatus = debounce(() => {
 //     if (!currentUser || !input.trim()) return;
@@ -134,16 +145,18 @@
 //     const container = messagesContainerRef.current;
 //     if (!container) return;
 
-//     const isNearBottom =
-//       container.scrollHeight - container.scrollTop - container.clientHeight <
-//       100;
-//     if (isNearBottom && messages.length > 0) {
-//       container.scrollTo({
-//         top: container.scrollHeight,
-//         behavior: "smooth",
-//       });
+//     if (isInitialLoad && messages.length > 0) {
+//       scrollToBottom("auto");
+//       setIsInitialLoad(false);
+//     } else {
+//       const isNearBottom =
+//         container.scrollHeight - container.scrollTop - container.clientHeight <
+//         100;
+//       if (isNearBottom && messages.length > 0) {
+//         scrollToBottom("smooth");
+//       }
 //     }
-//   }, [messages]);
+//   }, [messages, isInitialLoad]);
 
 //   useEffect(() => {
 //     if (!currentUser || !hasMoreMessages) return;
@@ -557,7 +570,7 @@ import {
   get,
   serverTimestamp,
 } from "firebase/database";
-import { ArrowUpTrayIcon } from "@heroicons/react/24/outline";
+import { ArrowUpTrayIcon, XMarkIcon } from "@heroicons/react/24/outline";
 import { onAuthStateChanged } from "firebase/auth";
 import MessageItem from "@/app/components/MessageItem";
 import ImageMessageItem from "@/app/components/ImageMessageItem";
@@ -582,6 +595,7 @@ const debounce = (func, wait) => {
 export default function ChatPage() {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
+  const [replyToId, setReplyToId] = useState(null);
   const [onlineUsers, setOnlineUsers] = useState([]);
   const [typingUsers, setTypingUsers] = useState([]);
   const [currentUser, setCurrentUser] = useState(null);
@@ -621,6 +635,16 @@ export default function ChatPage() {
       "set"
     );
   }, 500);
+
+  const handleReply = (messageId) => {
+    setReplyToId(messageId);
+    const inputElement = document.querySelector('input[type="text"]');
+    if (inputElement) inputElement.focus();
+  };
+
+  const cancelReply = () => {
+    setReplyToId(null);
+  };
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
@@ -893,11 +917,13 @@ export default function ChatPage() {
       user: currentUser.displayName || "Anonymous",
       userUid: currentUser.uid,
       timestamp: serverTimestamp(),
+      replyTo: replyToId,
     });
 
     try {
       await saveData(message.toRTDB(), `rooms/${roomName}/messages`, "push");
       setInput("");
+      setReplyToId(null);
       saveData(null, `rooms/${roomName}/typingUsers/${currentUser.uid}`, "set");
       if (typingTimeoutRef.current) {
         clearTimeout(typingTimeoutRef.current);
@@ -964,10 +990,12 @@ export default function ChatPage() {
         fileURL: data.secure_url,
         publicId: data.public_id,
         timestamp: serverTimestamp(),
+        replyTo: replyToId,
       });
 
       await saveData(message.toRTDB(), `rooms/${roomName}/messages`, "push");
 
+      setReplyToId(null);
       fileInputRef.current.value = "";
     } catch (error) {
       console.error("File upload failed:", error);
@@ -991,6 +1019,10 @@ export default function ChatPage() {
       alert("Failed to sign out.");
     }
   };
+
+  const repliedMessage = replyToId
+    ? messages.find((msg) => msg.id === replyToId)
+    : null;
 
   return (
     <div className="h-screen flex flex-col bg-gray-100 dark:bg-gray-900">
@@ -1042,57 +1074,87 @@ export default function ChatPage() {
         {messages.map((msg) => (
           <div key={msg.id} data-message-id={msg.id}>
             {msg.type === "text" ? (
-              <MessageItem message={msg} currentUser={currentUser} />
+              <MessageItem
+                message={msg}
+                messages={messages}
+                onReply={handleReply}
+              />
             ) : msg.type === "file" ? (
               /\.(png|jpe?g|gif|webp)$/i.test(msg.fileName) ? (
-                <ImageMessageItem message={msg} currentUser={currentUser} />
+                <ImageMessageItem
+                  message={msg}
+                  messages={messages}
+                  onReply={handleReply}
+                />
               ) : (
-                <FileMessageItem message={msg} currentUser={currentUser} />
+                <FileMessageItem
+                  message={msg}
+                  messages={messages}
+                  onReply={handleReply}
+                />
               )
             ) : null}
           </div>
         ))}
       </div>
-      <form
-        onSubmit={sendMessage}
-        className="fixed bottom-0 left-0 right-0 p-4 border-t bg-white dark:bg-gray-800 flex gap-2"
-      >
-        <input
-          type="text"
-          className="flex-1 px-4 py-2 rounded-xl border border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none"
-          placeholder="Type your message..."
-          value={input}
-          onChange={handleInputChange}
-        />
-        <input
-          type="file"
-          ref={fileInputRef}
-          className="hidden"
-          onChange={handleFileChange}
-        />
-        <OutlinedButton
-          type="button"
-          variant="secondary"
-          size="sm"
-          onClick={handleUpload}
-          disabled={isUploading}
-          aria-label="Upload file"
-        >
-          {isUploading ? (
-            <span>Uploading...</span>
-          ) : (
-            <ArrowUpTrayIcon className="h-5 w-5" />
-          )}
-        </OutlinedButton>
-        <PrimaryButton
-          type="submit"
-          variant="primary"
-          size="sm"
-          disabled={!input.trim()}
-        >
-          Send
-        </PrimaryButton>
-      </form>
+      <div className="fixed bottom-0 left-0 right-0 p-4 border-t bg-white dark:bg-gray-800">
+        {repliedMessage && (
+          <div className="mb-2 p-2 bg-gray-100 dark:bg-gray-600 rounded-lg text-sm flex justify-between items-center">
+            <div>
+              <p className="font-semibold text-gray-800 dark:text-gray-200">
+                Replying to {repliedMessage.user}
+              </p>
+              <p className="truncate text-gray-600 dark:text-gray-400">
+                {repliedMessage.text || repliedMessage.fileName || "Message"}
+              </p>
+            </div>
+            <button
+              onClick={cancelReply}
+              className="text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200"
+              aria-label="Cancel reply"
+            >
+              <XMarkIcon className="h-5 w-5" />
+            </button>
+          </div>
+        )}
+        <form onSubmit={sendMessage} className="flex gap-2">
+          <input
+            type="text"
+            className="flex-1 px-4 py-2 rounded-xl border border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none"
+            placeholder="Type your message..."
+            value={input}
+            onChange={handleInputChange}
+          />
+          <input
+            type="file"
+            ref={fileInputRef}
+            className="hidden"
+            onChange={handleFileChange}
+          />
+          <OutlinedButton
+            type="button"
+            variant="secondary"
+            size="sm"
+            onClick={handleUpload}
+            disabled={isUploading}
+            aria-label="Upload file"
+          >
+            {isUploading ? (
+              <span>Uploading...</span>
+            ) : (
+              <ArrowUpTrayIcon className="h-5 w-5" />
+            )}
+          </OutlinedButton>
+          <PrimaryButton
+            type="submit"
+            variant="primary"
+            size="sm"
+            disabled={!input.trim()}
+          >
+            Send
+          </PrimaryButton>
+        </form>
+      </div>
     </div>
   );
 }

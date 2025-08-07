@@ -4,24 +4,27 @@ import { ClipboardIcon } from "@heroicons/react/24/outline";
 import { auth } from "@/config/firebase";
 import Linkify from "linkify-react";
 
-export default function MessageItem({ message }) {
-  const { text, user, timestamp } = message;
+export default function MessageItem({ message, messages, onReply }) {
+  const { user, id, text, timestamp, replyTo } = message;
   const isCurrentUser = user === auth.currentUser?.displayName;
   const formattedTimestamp = timestamp ? formatTimestamp(timestamp) : null;
   const [toast, setToast] = useState(null);
 
+  // Find the replied-to message if replyTo exists
+  const repliedMessage = replyTo
+    ? messages?.find((msg) => msg.id === replyTo)
+    : null;
+
   const handleCopy = async () => {
     try {
-      // Primary method: navigator.clipboard
       if (navigator.clipboard && navigator.clipboard.writeText) {
         await navigator.clipboard.writeText(message.text);
         setToast("Message copied to clipboard!");
       } else {
-        // Fallback for mobile/older browsers
         const textarea = document.createElement("textarea");
         textarea.value = message.text;
-        textarea.style.position = "fixed"; // Avoid scrolling issues
-        textarea.style.opacity = "0"; // Hide element
+        textarea.style.position = "fixed";
+        textarea.style.opacity = "0";
         document.body.appendChild(textarea);
         textarea.focus();
         textarea.select();
@@ -41,8 +44,18 @@ export default function MessageItem({ message }) {
       console.error("Failed to copy message:", error);
       setToast("Failed to copy message.");
     }
-    // Clear toast after 2 seconds
     setTimeout(() => setToast(null), 2000);
+  };
+
+  const handleReplyClick = () => {
+    if (repliedMessage) {
+      const messageElement = document.querySelector(
+        `[data-message-id="${replyTo}"]`
+      );
+      if (messageElement) {
+        messageElement.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+    }
   };
 
   const renderTextWithLinks = (text) => (
@@ -60,7 +73,7 @@ export default function MessageItem({ message }) {
   );
 
   return (
-    <div className="relative">
+    <div className="relative group">
       <div
         className={`max-w-xs px-4 py-2 rounded-xl text-sm break-words ${
           isCurrentUser
@@ -72,6 +85,18 @@ export default function MessageItem({ message }) {
           <p className="font-bold text-xs text-blue-700 dark:text-blue-300 mb-1">
             {user}
           </p>
+        )}
+        {repliedMessage && (
+          <button
+            onClick={handleReplyClick}
+            className="mb-2 p-2 bg-gray-100 dark:bg-gray-600 rounded-lg text-xs opacity-75 w-full text-left hover:bg-gray-200 dark:hover:bg-gray-500 transition-colors"
+            aria-label={`View replied message from ${repliedMessage.user}`}
+          >
+            <p className="font-semibold">Replying to {repliedMessage.user}</p>
+            <p className="truncate">
+              {repliedMessage.text || repliedMessage.fileName || "Message"}
+            </p>
+          </button>
         )}
         <p>{renderTextWithLinks(text)}</p>
         <div className="flex items-center justify-between mt-1">
@@ -86,14 +111,36 @@ export default function MessageItem({ message }) {
               {formattedTimestamp}
             </p>
           )}
-          <button
-            onClick={handleCopy}
-            onTouchStart={handleCopy} // Support touch events for mobile
-            className="p-1 text-gray-500 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400"
-            aria-label="Copy message"
-          >
-            <ClipboardIcon className="h-4 w-4" />
-          </button>
+          <div className="flex items-center space-x-2">
+            <button
+              onClick={handleCopy}
+              onTouchStart={handleCopy}
+              className="p-1 text-gray-500 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400"
+              aria-label="Copy message"
+            >
+              <ClipboardIcon className="h-4 w-4" />
+            </button>
+            <button
+              onClick={() => onReply(id)}
+              className="p-1 text-gray-500 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 opacity-0 group-hover:opacity-100 transition-opacity"
+              title="Reply to this message"
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                className="h-4 w-4"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M9 15L3 9m0 0l6-6M3 9h12a6 6 0 010 12h-3"
+                />
+              </svg>
+            </button>
+          </div>
         </div>
       </div>
       {toast && (

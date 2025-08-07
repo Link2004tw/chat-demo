@@ -11,8 +11,9 @@ export default class ImageMessage {
    * @param {string} params.fileURL - URL of the file in Cloudinary
    * @param {string} params.publicId - Cloudinary public ID for the file
    * @param {number} params.timestamp - Unix timestamp in milliseconds
+   * @param {string} [params.replyTo] - ID of the message being replied to (optional)
    */
-  constructor({ id, user, fileName, fileURL, publicId, timestamp }) {
+  constructor({ id, user, fileName, fileURL, publicId, timestamp, replyTo }) {
     this.id = id || null;
     this.user = user;
     this.fileName = fileName;
@@ -20,6 +21,7 @@ export default class ImageMessage {
     this.publicId = publicId;
     this.type = "file";
     this.timestamp = timestamp || Date.now();
+    this.replyTo = replyTo || null;
   }
 
   /**
@@ -37,6 +39,9 @@ export default class ImageMessage {
     };
     if (this.id) {
       data.id = this.id;
+    }
+    if (this.replyTo) {
+      data.replyTo = this.replyTo;
     }
     return data;
   }
