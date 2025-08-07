@@ -9,6 +9,7 @@ import ImageMessageItem from "@/app/components/ImageMessageItem";
 import FileMessageItem from "@/app/components/FileMessageItem";
 import OutlinedButton from "@/app/components/OutlinedButton";
 import Cookies from "universal-cookie";
+import { decryptMessage, getRoomKey } from "@/utils/crypto";
 
 const cookies = new Cookies();
 
@@ -16,9 +17,19 @@ export default function MediaPage() {
   const [mediaMessages, setMediaMessages] = useState([]);
   const [currentUser, setCurrentUser] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [encryptionKey, setEncryptionKey] = useState(null);
   const router = useRouter();
   const params = useParams();
   const roomName = params.room;
+
+  useEffect(() => {
+    getRoomKey(roomName)
+      .then((key) => setEncryptionKey(key))
+      .catch((error) => {
+        console.error("Failed to get encryption key:", error);
+        alert("Encryption key setup failed. Media cannot be decrypted.");
+      });
+  }, [roomName]);
 
   const handleReply = (messageId) => {
     router.push(`/rooms/${roomName}?replyTo=${messageId}`);
@@ -37,14 +48,14 @@ export default function MediaPage() {
   }, [router]);
 
   useEffect(() => {
-    if (!currentUser || !roomName) return;
+    if (!currentUser || !roomName || !encryptionKey) return;
 
     const messagesRef = ref(db, `rooms/${roomName}/messages`);
     const messagesQuery = query(messagesRef, orderByChild("timestamp"));
 
     const unsubscribe = onValue(
       messagesQuery,
-      (snapshot) => {
+      async (snapshot) => {
         const messages = [];
         snapshot.forEach((childSnapshot) => {
           const msg = { ...childSnapshot.val(), id: childSnapshot.key };
@@ -52,7 +63,30 @@ export default function MediaPage() {
             messages.push(msg);
           }
         });
-        setMediaMessages(messages.sort((a, b) => a.timestamp - b.timestamp));
+
+        const decryptedMessages = await Promise.all(
+          messages.map(async (msg) => {
+            if (msg.isEncrypted) {
+              try {
+                msg.fileName = await decryptMessage(
+                  msg.fileName,
+                  encryptionKey
+                );
+                msg.fileURL = await decryptMessage(msg.fileURL, encryptionKey);
+              } catch (error) {
+                console.error("Decryption failed:", error);
+                return null; // Skip invalid messages
+              }
+            }
+            return msg;
+          })
+        );
+
+        setMediaMessages(
+          decryptedMessages
+            .filter((msg) => msg !== null)
+            .sort((a, b) => a.timestamp - b.timestamp)
+        );
         setIsLoading(false);
       },
       (error) => {
@@ -62,13 +96,13 @@ export default function MediaPage() {
     );
 
     return () => unsubscribe();
-  }, [currentUser, roomName]);
+  }, [currentUser, roomName, encryptionKey]);
 
   const handleBackToChat = () => {
     router.push(`/rooms/${roomName}`);
   };
 
-  if (!currentUser)
+  if (!currentUser || !encryptionKey)
     return (
       <p className="text-center text-gray-500 dark:text-gray-400">Loading...</p>
     );

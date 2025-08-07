@@ -1,12 +1,19 @@
-import { formatTimestamp } from "@/utils/timestamp";
 import { auth } from "@/config/firebase";
+
+function formatTimestamp(timestamp) {
+  if (typeof timestamp === "number" || typeof timestamp === "string") {
+    return new Date(timestamp).toLocaleTimeString([], {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  }
+  return null;
+}
 
 export default function ImageMessageItem({ message, messages, onReply }) {
   const { user, fileName, fileURL, timestamp, replyTo, id } = message;
   const isCurrentUser = user === auth.currentUser?.displayName;
   const formattedTimestamp = timestamp ? formatTimestamp(timestamp) : null;
-
-  // Find the replied-to message if replyTo exists
   const repliedMessage = replyTo
     ? messages?.find((msg) => msg.id === replyTo)
     : null;
@@ -47,12 +54,19 @@ export default function ImageMessageItem({ message, messages, onReply }) {
           </p>
         </button>
       )}
-      <img
-        src={fileURL}
-        alt={fileName}
-        className="max-w-full h-auto rounded-lg my-2"
-        loading="lazy"
-      />
+      {fileURL &&
+      typeof fileURL === "string" &&
+      fileName &&
+      typeof fileName === "string" ? (
+        <img
+          src={fileURL}
+          alt={fileName}
+          className="max-w-full h-auto rounded-lg my-2"
+          loading="lazy"
+        />
+      ) : (
+        <p className="text-red-500">Unable to display image</p>
+      )}
       {formattedTimestamp && (
         <p
           className={`text-xs opacity-75 mt-1 ${

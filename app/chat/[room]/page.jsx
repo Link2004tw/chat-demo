@@ -29,6 +29,7 @@ import Cookies from "universal-cookie";
 import Message from "@/models/message";
 import ImageMessage from "@/models/imageMessage";
 import { saveData } from "@/utils/database";
+import { encryptMessage, decryptMessage, getRoomKey } from "@/utils/crypto";
 
 const cookies = new Cookies();
 
@@ -52,6 +53,7 @@ export default function ChatPage() {
   const [hasMoreMessages, setHasMoreMessages] = useState(true);
   const [isInitialLoad, setIsInitialLoad] = useState(true);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const [encryptionKey, setEncryptionKey] = useState(null);
   const fileInputRef = useRef(null);
   const messagesContainerRef = useRef(null);
   const oldestTimestampRef = useRef(null);
@@ -62,6 +64,15 @@ export default function ChatPage() {
   const params = useParams();
   const roomName = params.room;
   const messagesPerPage = 25;
+
+  useEffect(() => {
+    getRoomKey(roomName)
+      .then((key) => setEncryptionKey(key))
+      .catch((error) => {
+        console.error("Failed to get encryption key:", error);
+        alert("Encryption key setup failed. Messages cannot be decrypted.");
+      });
+  }, [roomName]);
 
   const scrollToBottom = (behavior = "smooth") => {
     const container = messagesContainerRef.current;
@@ -129,17 +140,40 @@ export default function ChatPage() {
   }, [router]);
 
   useEffect(() => {
-    if (!currentUser) return;
+    if (!currentUser || !encryptionKey) return;
 
     const cachedMessages = localStorage.getItem(`messages_${roomName}`);
     if (cachedMessages) {
       const parsedMessages = JSON.parse(cachedMessages);
-      setMessages(parsedMessages);
-      if (parsedMessages.length > 0) {
-        oldestTimestampRef.current = Math.min(
-          ...parsedMessages.map((m) => m.timestamp)
-        );
-      }
+      Promise.all(
+        parsedMessages.map(async (msg) => {
+          if (msg.isEncrypted === true) {
+            try {
+              if (msg.type === "text") {
+                msg.text = await decryptMessage(msg.text, encryptionKey);
+              } else if (msg.type === "file") {
+                msg.fileName = await decryptMessage(
+                  msg.fileName,
+                  encryptionKey
+                );
+                msg.fileURL = await decryptMessage(msg.fileURL, encryptionKey);
+              }
+            } catch (error) {
+              console.error("Decryption failed for cached message:", error);
+              return null; // Skip invalid messages
+            }
+          }
+          return msg;
+        })
+      ).then((decryptedMessages) => {
+        const validMessages = decryptedMessages.filter((msg) => msg !== null);
+        setMessages(validMessages);
+        if (validMessages.length > 0) {
+          oldestTimestampRef.current = Math.min(
+            ...validMessages.map((m) => m.timestamp)
+          );
+        }
+      });
     }
 
     const messagesRef = ref(db, `rooms/${roomName}/messages`);
@@ -151,11 +185,24 @@ export default function ChatPage() {
 
     const unsubscribe = onChildAdded(
       messagesQuery,
-      (snapshot) => {
+      async (snapshot) => {
         const msg = { ...snapshot.val(), id: snapshot.key };
         if (!msg || !msg.timestamp) {
           console.warn("Invalid message:", msg);
           return;
+        }
+        if (msg.isEncrypted === true) {
+          try {
+            if (msg.type === "text") {
+              msg.text = await decryptMessage(msg.text, encryptionKey);
+            } else if (msg.type === "file") {
+              msg.fileName = await decryptMessage(msg.fileName, encryptionKey);
+              msg.fileURL = await decryptMessage(msg.fileURL, encryptionKey);
+            }
+          } catch (error) {
+            console.error("Decryption failed:", error);
+            return; // Skip this message
+          }
         }
         setMessages((prev) => {
           if (prev.some((m) => m.id === msg.id)) return prev;
@@ -176,7 +223,7 @@ export default function ChatPage() {
     );
 
     return () => unsubscribe();
-  }, [currentUser, roomName]);
+  }, [currentUser, roomName, encryptionKey]);
 
   useEffect(() => {
     const container = messagesContainerRef.current;
@@ -226,8 +273,36 @@ export default function ChatPage() {
             return;
           }
 
+          const decryptedMessages = await Promise.all(
+            olderMessages.map(async (msg) => {
+              if (msg.isEncrypted === true) {
+                try {
+                  if (msg.type === "text") {
+                    msg.text = await decryptMessage(msg.text, encryptionKey);
+                  } else if (msg.type === "file") {
+                    msg.fileName = await decryptMessage(
+                      msg.fileName,
+                      encryptionKey
+                    );
+                    msg.fileURL = await decryptMessage(
+                      msg.fileURL,
+                      encryptionKey
+                    );
+                  }
+                } catch (error) {
+                  console.error("Decryption failed:", error);
+                  return null; // Skip invalid messages
+                }
+              }
+              return msg;
+            })
+          );
+
           setMessages((prev) => {
-            const updatedMessages = [...olderMessages, ...prev].sort(
+            const validMessages = decryptedMessages.filter(
+              (msg) => msg !== null
+            );
+            const updatedMessages = [...validMessages, ...prev].sort(
               (a, b) => a.timestamp - b.timestamp
             );
             localStorage.setItem(
@@ -248,7 +323,7 @@ export default function ChatPage() {
 
     messagesContainer.addEventListener("scroll", handleScroll);
     return () => messagesContainer.removeEventListener("scroll", handleScroll);
-  }, [currentUser, isLoadingMore, hasMoreMessages, roomName]);
+  }, [currentUser, isLoadingMore, hasMoreMessages, roomName, encryptionKey]);
 
   useEffect(() => {
     if (!currentUser) return;
@@ -376,18 +451,20 @@ export default function ChatPage() {
     };
   }, [currentUser, roomName]);
 
-  if (!currentUser) return <p>Loading...</p>;
+  if (!currentUser || !encryptionKey) return <p>Loading...</p>;
 
   const sendMessage = async (e) => {
     e.preventDefault();
     if (!input.trim()) return;
 
+    const encryptedText = await encryptMessage(input, encryptionKey);
     const message = new Message({
-      text: input,
+      text: encryptedText,
       user: currentUser.displayName || "Anonymous",
       userUid: currentUser.uid,
       timestamp: serverTimestamp(),
       replyTo: replyToId,
+      isEncrypted: true,
     });
 
     try {
@@ -453,14 +530,20 @@ export default function ChatPage() {
       }
 
       const data = await response.json();
+      const encryptedFileName = await encryptMessage(file.name, encryptionKey);
+      const encryptedFileURL = await encryptMessage(
+        data.secure_url,
+        encryptionKey
+      );
       const message = new ImageMessage({
         user: currentUser.displayName || "Anonymous",
         userUid: currentUser.uid,
-        fileName: file.name,
-        fileURL: data.secure_url,
+        fileName: encryptedFileName,
+        fileURL: encryptedFileURL,
         publicId: data.public_id,
         timestamp: serverTimestamp(),
         replyTo: replyToId,
+        isEncrypted: true,
       });
 
       await saveData(message.toRTDB(), `rooms/${roomName}/messages`, "push");
@@ -511,7 +594,7 @@ export default function ChatPage() {
             <div className="absolute right-0 mt-2 w-48 bg-white dark:bg-gray-800 rounded-md shadow-lg z-30">
               <button
                 onClick={() => {
-                  router.push(`/chat/${roomName}/media`);
+                  router.push(`/rooms/${roomName}/media`);
                   setIsDropdownOpen(false);
                 }}
                 className="block w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"

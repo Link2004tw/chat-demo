@@ -1,12 +1,19 @@
-import { formatTimestamp } from "@/utils/timestamp";
 import { auth } from "@/config/firebase";
+
+function formatTimestamp(timestamp) {
+  if (typeof timestamp === "number" || typeof timestamp === "string") {
+    return new Date(timestamp).toLocaleTimeString([], {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  }
+  return null;
+}
 
 export default function FileMessageItem({ message, messages, onReply }) {
   const { user, fileName, fileURL, timestamp, replyTo, id } = message;
   const isCurrentUser = user === auth.currentUser?.displayName;
   const formattedTimestamp = timestamp ? formatTimestamp(timestamp) : null;
-
-  // Find the replied-to message if replyTo exists
   const repliedMessage = replyTo
     ? messages?.find((msg) => msg.id === replyTo)
     : null;
@@ -47,19 +54,26 @@ export default function FileMessageItem({ message, messages, onReply }) {
           </p>
         </button>
       )}
-      <a
-        href={fileURL}
-        target="_blank"
-        rel="noopener noreferrer"
-        className={`${
-          isCurrentUser
-            ? "text-blue-100 hover:underline"
-            : "text-blue-600 dark:text-blue-400 hover:underline"
-        }`}
-        aria-label={`Download file ${fileName}`}
-      >
-        {fileName}
-      </a>
+      {fileURL &&
+      typeof fileURL === "string" &&
+      fileName &&
+      typeof fileName === "string" ? (
+        <a
+          href={fileURL}
+          target="_blank"
+          rel="noopener noreferrer"
+          className={`${
+            isCurrentUser
+              ? "text-blue-100 hover:underline"
+              : "text-blue-600 dark:text-blue-400 hover:underline"
+          }`}
+          aria-label={`Download file ${fileName}`}
+        >
+          {fileName}
+        </a>
+      ) : (
+        <p className="text-red-500">Unable to display file</p>
+      )}
       {formattedTimestamp && (
         <p
           className={`text-xs opacity-75 mt-1 ${

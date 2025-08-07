@@ -1,8 +1,17 @@
 import { useState } from "react";
-import { formatTimestamp } from "@/utils/timestamp";
-import { ClipboardIcon } from "@heroicons/react/24/outline";
 import { auth } from "@/config/firebase";
 import Linkify from "linkify-react";
+import { ClipboardIcon } from "@heroicons/react/24/outline";
+
+function formatTimestamp(timestamp) {
+  if (typeof timestamp === "number" || typeof timestamp === "string") {
+    return new Date(timestamp).toLocaleTimeString([], {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  }
+  return null;
+}
 
 export default function MessageItem({ message, messages, onReply }) {
   const { user, id, text, timestamp, replyTo } = message;
@@ -10,41 +19,24 @@ export default function MessageItem({ message, messages, onReply }) {
   const formattedTimestamp = timestamp ? formatTimestamp(timestamp) : null;
   const [toast, setToast] = useState(null);
 
-  // Find the replied-to message if replyTo exists
   const repliedMessage = replyTo
     ? messages?.find((msg) => msg.id === replyTo)
     : null;
 
   const handleCopy = async () => {
-    try {
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        await navigator.clipboard.writeText(message.text);
-        setToast("Message copied to clipboard!");
-      } else {
-        const textarea = document.createElement("textarea");
-        textarea.value = message.text;
-        textarea.style.position = "fixed";
-        textarea.style.opacity = "0";
-        document.body.appendChild(textarea);
-        textarea.focus();
-        textarea.select();
-        try {
-          const successful = document.execCommand("copy");
-          if (successful) {
-            setToast("Message copied to clipboard!");
-          } else {
-            setToast("Failed to copy message.");
-          }
-        } catch (err) {
-          setToast("Failed to copy message.");
-        }
-        document.body.removeChild(textarea);
-      }
-    } catch (error) {
-      console.error("Failed to copy message:", error);
-      setToast("Failed to copy message.");
+    if (!text || typeof text !== "string") {
+      setToast("Cannot copy: Invalid message content");
+      setTimeout(() => setToast(null), 2000);
+      return;
     }
-    setTimeout(() => setToast(null), 2000);
+    try {
+      await navigator.clipboard.writeText(text);
+      setToast("Message copied!");
+      setTimeout(() => setToast(null), 2000);
+    } catch (err) {
+      setToast("Failed to copy message");
+      setTimeout(() => setToast(null), 2000);
+    }
   };
 
   const handleReplyClick = () => {
@@ -98,7 +90,11 @@ export default function MessageItem({ message, messages, onReply }) {
             </p>
           </button>
         )}
-        <p>{renderTextWithLinks(text)}</p>
+        {text && typeof text === "string" ? (
+          <p>{renderTextWithLinks(text)}</p>
+        ) : (
+          <p className="text-red-500">Unable to display message</p>
+        )}
         <div className="flex items-center justify-between mt-1">
           {formattedTimestamp && (
             <p
