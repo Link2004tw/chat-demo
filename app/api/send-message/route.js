@@ -1,33 +1,166 @@
-import { db } from "@/config/admin-firebase";
-import { encryptMessage, getRoomKey } from "@/utils/crypto"; //from "@/lib/crypto"; // Your crypto file
-import { push, ref, set } from "firebase/database";
+import { getAuth } from "firebase-admin/auth";
 import { NextResponse } from "next/server";
+import { decryptMessage, encryptMessage } from "@/utils/crypto";
+import { push, serverTimestamp, ref } from "firebase/database";
+import { db } from "@/config/admin-firebase";
 
 export async function POST(req) {
-  if (req.method !== "POST") {
-    return res.status(405).json({ error: "Method Not Allowed" });
-  }
-  const { message, roomId, userId } = await req.json();
-  const text = message.text;
-  if (!message || !roomId || !userId) {
-    return NextResponse.json(
-      { error: `Missing required fields` },
-      { status: 400 }
-    );
-  }
-
   try {
-    const key = await getRoomKey();
-    const encryptedData = await encryptMessage(text, key);
-    //console.log(message);
-    //console.log(encryptedData);
-    message.text = encryptedData;
-    await push(ref(db, `/rooms/${roomId}/messages`), {
-      ...message,
-    });
-    return NextResponse.json({ message: "message saved" }, { status: 200 });
+    // Parse multipart/form-data
+    //console.log(req);
+    const formData = await req.formData();
+    const file = formData.get("file");
+    const message = formData.get("message");
+    const roomName = formData.get("roomName");
+    console.log(message);
+    if (!message || !roomName) {
+      console.log("error1");
+      return NextResponse.json(
+        { error: "Missing required fields: message, roomName, base64RoomKey" },
+        { status: 400 }
+      );
+    }
+
+    // Parse message JSON
+    let messageData;
+    try {
+      messageData = JSON.parse(message);
+    } catch (error) {
+      console.log(2);
+      console.log(error);
+      return NextResponse.json(
+        { error: "Invalid message JSON" },
+        { status: 400 }
+      );
+    }
+    const authHeader = req.headers.get("authorization");
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      return NextResponse.json(
+        { error: "Unauthorized: Missing or invalid token" },
+        { status: 401 }
+      );
+    }
+
+    const idToken = authHeader.split("Bearer ")[1];
+    try {
+      await getAuth().verifyIdToken(idToken);
+    } catch (error) {
+      console.error("Token verification failed:", error);
+      return NextResponse.json(
+        { error: "Unauthorized: Invalid token" },
+        { status: 401 }
+      );
+    }
+    const { text, user, replyTo, type, fileName, fileURL, publicId } =
+      messageData;
+    console.log(user, type);
+    if (!user || !type) {
+      return NextResponse.json(
+        { error: "Missing required message fields: user, userUid, type" },
+        { status: 400 }
+      );
+    }
+
+    let finalText = text;
+    let finalFileName = fileName;
+    let finalFileURL = fileURL;
+    let finalPublicId = publicId;
+
+    if (type === "file" && file) {
+      // Validate file
+      const maxSize = 10 * 1024 * 1024; // 10MB
+      if (file.size > maxSize) {
+        return NextResponse.json(
+          { error: "File size exceeds 10MB limit" },
+          { status: 400 }
+        );
+      }
+
+      // Upload to Cloudinary
+      const uploadFormData = new FormData();
+      uploadFormData.append("file", file);
+      uploadFormData.append(
+        "upload_preset",
+        process.env.CLOUDINARY_UPLOAD_PRESET
+      );
+      uploadFormData.append("cloud_name", process.env.CLOUDINARY_CLOUD_NAME);
+      uploadFormData.append("folder", `rooms/${roomName}`);
+
+      const isImage = file.type.startsWith("image/");
+      const uploadType = isImage ? "image" : "auto";
+      const response = await fetch(
+        `https://api.cloudinary.com/v1_1/${process.env.CLOUDINARY_CLOUD_NAME}/${uploadType}/upload`,
+        { method: "POST", body: uploadFormData }
+      );
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error?.message || "Cloudinary upload failed");
+      }
+
+      const data = await response.json();
+      finalFileName = await encryptMessage(file.name);
+      finalFileURL = await encryptMessage(data.secure_url);
+      finalPublicId = data.public_id;
+    } else if (type === "text" && !text) {
+      return NextResponse.json(
+        { error: "Missing text for text message" },
+        { status: 400 }
+      );
+    }
+
+    const messageToSave = {
+      text: finalText || null,
+      fileName: finalFileName || null,
+      fileURL: finalFileURL || null,
+      publicId: finalPublicId || null,
+      user,
+      timestamp: serverTimestamp(),
+      replyTo: replyTo || null,
+      type,
+    };
+    console.log(roomName);
+    const messageRef = await push(
+      ref(db, `/rooms/${roomName}/messages`),
+      messageToSave
+    );
+
+    const savedMessage = {
+      id: messageRef.key,
+      text:
+        type === "text" && finalText ? await decryptMessage(finalText) : null,
+      fileName:
+        type === "file" && finalFileName
+          ? await decryptMessage(finalFileName)
+          : null,
+      fileURL:
+        type === "file" && finalFileURL
+          ? await decryptMessage(finalFileURL)
+          : null,
+      publicId: finalPublicId || null,
+      user,
+      timestamp: serverTimestamp(),
+      replyTo: replyTo || null,
+      type,
+    };
+
+    console.log("Saved message:", savedMessage);
+    return NextResponse.json(savedMessage, { status: 200 });
   } catch (err) {
     console.error("[Send Message Error]", err);
-    return NextResponse.json({ error: `error: ${err}` }, { status: 401 });
+    if (
+      err.message.includes("Invalid key") ||
+      err.message.includes("encrypt") ||
+      err.message.includes("decrypt")
+    ) {
+      return NextResponse.json(
+        { error: "Invalid encryption key" },
+        { status: 400 }
+      );
+    }
+    return NextResponse.json(
+      { error: `Error: ${err.message}` },
+      { status: 500 }
+    );
   }
 }

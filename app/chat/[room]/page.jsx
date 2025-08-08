@@ -21,7 +21,7 @@ import {
   EllipsisVerticalIcon,
 } from "@heroicons/react/24/outline";
 
-import { onAuthStateChanged } from "firebase/auth";
+import { getAuth, onAuthStateChanged } from "firebase/auth";
 import MessageItem from "@/app/components/MessageItem";
 import ImageMessageItem from "@/app/components/ImageMessageItem";
 import FileMessageItem from "@/app/components/FileMessageItem";
@@ -458,7 +458,7 @@ export default function ChatPage() {
   }, [currentUser, roomName]);
 
   if (!currentUser) return <p>Loading...</p>;
-
+  //this is for text only
   const sendMessage = async (e) => {
     e.preventDefault();
     if (!input.trim()) return;
@@ -519,38 +519,11 @@ export default function ChatPage() {
         return;
       }
 
-      if (
-        !process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME ||
-        !process.env.NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET
-      ) {
-        throw new Error("Cloudinary configuration missing.");
-      }
-
       const isImage = file.type.startsWith("image/");
       const uploadType = isImage ? "image" : "auto";
       const formData = new FormData();
       formData.append("file", file);
-      formData.append(
-        "upload_preset",
-        process.env.NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET
-      );
-      formData.append(
-        "cloud_name",
-        process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME
-      );
       formData.append("folder", `rooms/${roomName}`);
-
-      const response = await fetch(
-        `https://api.cloudinary.com/v1_1/${process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME}/${uploadType}/upload`,
-        { method: "POST", body: formData }
-      );
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error?.message || "Cloudinary upload failed");
-      }
-
-      const data = await response.json();
       const encryptedFileName = "";
       const encryptedFileURL = "";
       const message = new ImageMessage({
@@ -558,13 +531,22 @@ export default function ChatPage() {
         userUid: currentUser.uid,
         fileName: encryptedFileName,
         fileURL: encryptedFileURL,
-        publicId: data.public_id,
         timestamp: serverTimestamp(),
         replyTo: replyToId,
         isEncrypted: true,
       });
-
-      await saveData(message.toRTDB(), `rooms/${roomName}/messages`, "push");
+      formData.append("message", JSON.stringify(message.toRTDB()));
+      formData.append("roomName", roomName);
+      const idToken = await getAuth().currentUser.getIdToken();
+      const res = await fetch("/api/send-message", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${idToken}`, // Attach token here
+        },
+        body: formData,
+      });
+      console.log(res);
+      //await saveData(message.toRTDB(), `rooms/${roomName}/messages`, "push");
 
       setReplyToId(null);
       fileInputRef.current.value = "";
