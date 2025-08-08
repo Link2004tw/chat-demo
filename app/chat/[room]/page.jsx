@@ -14,11 +14,13 @@ import {
   get,
   serverTimestamp,
 } from "firebase/database";
+
 import {
   ArrowUpTrayIcon,
   XMarkIcon,
   EllipsisVerticalIcon,
 } from "@heroicons/react/24/outline";
+
 import { onAuthStateChanged } from "firebase/auth";
 import MessageItem from "@/app/components/MessageItem";
 import ImageMessageItem from "@/app/components/ImageMessageItem";
@@ -29,7 +31,7 @@ import Cookies from "universal-cookie";
 import Message from "@/models/message";
 import ImageMessage from "@/models/imageMessage";
 import { saveData } from "@/utils/database";
-import { encryptMessage, decryptMessage, getRoomKey } from "@/utils/crypto";
+//import { encryptMessage, decryptMessage } from "@/utils/crypto";
 
 const cookies = new Cookies();
 
@@ -53,7 +55,6 @@ export default function ChatPage() {
   const [hasMoreMessages, setHasMoreMessages] = useState(true);
   const [isInitialLoad, setIsInitialLoad] = useState(true);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
-  const [encryptionKey, setEncryptionKey] = useState(null);
   const fileInputRef = useRef(null);
   const messagesContainerRef = useRef(null);
   const oldestTimestampRef = useRef(null);
@@ -64,15 +65,6 @@ export default function ChatPage() {
   const params = useParams();
   const roomName = params.room;
   const messagesPerPage = 25;
-
-  useEffect(() => {
-    getRoomKey(roomName)
-      .then((key) => setEncryptionKey(key))
-      .catch((error) => {
-        console.error("Failed to get encryption key:", error);
-        alert("Encryption key setup failed. Messages cannot be decrypted.");
-      });
-  }, [roomName]);
 
   const scrollToBottom = (behavior = "smooth") => {
     const container = messagesContainerRef.current;
@@ -123,24 +115,35 @@ export default function ChatPage() {
   }, []);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
-      const token = cookies.get("auth-token");
-      if (!user || !token) {
-        router.replace("/");
-      } else {
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      if (user) {
         setCurrentUser(user);
-        const urlParams = new URLSearchParams(window.location.search);
-        const replyTo = urlParams.get("replyTo");
-        if (replyTo) {
-          setReplyToId(replyTo);
-        }
+        const idToken = await user.getIdToken();
+        const response = await fetch("/api/get-messages", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${idToken}`, // Attach token here
+          },
+          body: JSON.stringify({ roomName }),
+        });
+        console.log(response);
+
+        if (!response.ok) throw new Error("Failed to fetch messages");
+
+        const data = await response.json();
+        console.log(data);
+        setMessages(data || []);
+      } else {
+        router.push("/");
       }
     });
+
     return () => unsubscribe();
-  }, [router]);
+  }, [router, roomName]);
 
   useEffect(() => {
-    if (!currentUser || !encryptionKey) return;
+    if (!currentUser) return;
 
     const cachedMessages = localStorage.getItem(`messages_${roomName}`);
     if (cachedMessages) {
@@ -150,13 +153,10 @@ export default function ChatPage() {
           if (msg.isEncrypted === true) {
             try {
               if (msg.type === "text") {
-                msg.text = await decryptMessage(msg.text, encryptionKey);
+                msg.text = await decryptMessage(msg.text);
               } else if (msg.type === "file") {
-                msg.fileName = await decryptMessage(
-                  msg.fileName,
-                  encryptionKey
-                );
-                msg.fileURL = await decryptMessage(msg.fileURL, encryptionKey);
+                msg.fileName = await decryptMessage(msg.fileName);
+                msg.fileURL = await decryptMessage(msg.fileURL);
               }
             } catch (error) {
               console.error("Decryption failed for cached message:", error);
@@ -191,18 +191,28 @@ export default function ChatPage() {
           console.warn("Invalid message:", msg);
           return;
         }
-        if (msg.isEncrypted === true) {
-          try {
-            if (msg.type === "text") {
-              msg.text = await decryptMessage(msg.text, encryptionKey);
-            } else if (msg.type === "file") {
-              msg.fileName = await decryptMessage(msg.fileName, encryptionKey);
-              msg.fileURL = await decryptMessage(msg.fileURL, encryptionKey);
-            }
-          } catch (error) {
-            console.error("Decryption failed:", error);
-            return; // Skip this message
+        const idToken = await auth.currentUser.getIdToken();
+        try {
+          const response = await fetch("/api/get-message", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${idToken}`, // Attach token here
+            },
+            body: JSON.stringify({
+              message: msg,
+            }),
+          });
+          if (msg.type === "text") {
+            msg.text = (await response.json()).text;
+          } else if (msg.type === "file") {
+            const data = await response.json();
+            msg.fileName = data.fileName;
+            msg.fileURL = data.fileURL;
           }
+        } catch (error) {
+          console.error("Decryption failed:", error);
+          return; // Skip this message
         }
         setMessages((prev) => {
           if (prev.some((m) => m.id === msg.id)) return prev;
@@ -223,7 +233,7 @@ export default function ChatPage() {
     );
 
     return () => unsubscribe();
-  }, [currentUser, roomName, encryptionKey]);
+  }, [currentUser, roomName]);
 
   useEffect(() => {
     const container = messagesContainerRef.current;
@@ -278,16 +288,10 @@ export default function ChatPage() {
               if (msg.isEncrypted === true) {
                 try {
                   if (msg.type === "text") {
-                    msg.text = await decryptMessage(msg.text, encryptionKey);
+                    msg.text = await decryptMessage(msg.text);
                   } else if (msg.type === "file") {
-                    msg.fileName = await decryptMessage(
-                      msg.fileName,
-                      encryptionKey
-                    );
-                    msg.fileURL = await decryptMessage(
-                      msg.fileURL,
-                      encryptionKey
-                    );
+                    msg.fileName = await decryptMessage(msg.fileName);
+                    msg.fileURL = await decryptMessage(msg.fileURL);
                   }
                 } catch (error) {
                   console.error("Decryption failed:", error);
@@ -323,7 +327,7 @@ export default function ChatPage() {
 
     messagesContainer.addEventListener("scroll", handleScroll);
     return () => messagesContainer.removeEventListener("scroll", handleScroll);
-  }, [currentUser, isLoadingMore, hasMoreMessages, roomName, encryptionKey]);
+  }, [currentUser, isLoadingMore, hasMoreMessages, roomName]);
 
   useEffect(() => {
     if (!currentUser) return;
@@ -363,6 +367,7 @@ export default function ChatPage() {
     };
   }, [currentUser, roomName]);
 
+  //online users
   useEffect(() => {
     const onlineUsersRef = ref(db, `rooms/${roomName}/onlineUsers`);
     const unsubscribe = onValue(
@@ -389,6 +394,7 @@ export default function ChatPage() {
     return () => unsubscribe();
   }, [roomName]);
 
+  //typing
   useEffect(() => {
     if (!currentUser) return;
 
@@ -451,15 +457,14 @@ export default function ChatPage() {
     };
   }, [currentUser, roomName]);
 
-  if (!currentUser || !encryptionKey) return <p>Loading...</p>;
+  if (!currentUser) return <p>Loading...</p>;
 
   const sendMessage = async (e) => {
     e.preventDefault();
     if (!input.trim()) return;
 
-    const encryptedText = await encryptMessage(input, encryptionKey);
     const message = new Message({
-      text: encryptedText,
+      text: input,
       user: currentUser.displayName || "Anonymous",
       userUid: currentUser.uid,
       timestamp: serverTimestamp(),
@@ -468,7 +473,23 @@ export default function ChatPage() {
     });
 
     try {
-      await saveData(message.toRTDB(), `rooms/${roomName}/messages`, "push");
+      const token = await auth.currentUser.getIdToken();
+
+      const response = await fetch("/api/send-message", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          roomId: roomName,
+          userId: currentUser.displayName,
+          message: message.toRTDB(),
+        }),
+      });
+      console.log(await response.json());
+
+      //await saveData(message.toRTDB(), `rooms/${roomName}/messages`, "push");
       setInput("");
       setReplyToId(null);
       saveData(null, `rooms/${roomName}/typingUsers/${currentUser.uid}`, "set");
@@ -530,11 +551,8 @@ export default function ChatPage() {
       }
 
       const data = await response.json();
-      const encryptedFileName = await encryptMessage(file.name, encryptionKey);
-      const encryptedFileURL = await encryptMessage(
-        data.secure_url,
-        encryptionKey
-      );
+      const encryptedFileName = "";
+      const encryptedFileURL = "";
       const message = new ImageMessage({
         user: currentUser.displayName || "Anonymous",
         userUid: currentUser.uid,
