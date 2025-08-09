@@ -81,7 +81,7 @@ export default function ChatPage() {
       {
         uid: currentUser.uid,
         displayName: currentUser.displayName || "Anonymous",
-        timestamp: Date.now(),
+        timestamp: serverTimestamp(), //Date.now(),
       },
       `rooms/${roomName}/typingUsers/${currentUser.uid}`,
       "set"
@@ -112,51 +112,6 @@ export default function ChatPage() {
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
-
-  async function connectMessageStream(roomName) {
-    const token = await auth.currentUser.getIdToken();
-
-    const response = await fetch(
-      `/api/messages/stream?room=${encodeURIComponent(roomName)}`,
-      {
-        method: "GET",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          Accept: "text/event-stream",
-        },
-      }
-    );
-
-    if (!response.ok) {
-      console.error("SSE connection failed:", response.statusText);
-      return;
-    }
-
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder("utf-8");
-    let buffer = "";
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-
-      buffer += decoder.decode(value, { stream: true });
-      let lines = buffer.split("\n");
-      buffer = lines.pop();
-
-      for (const line of lines) {
-        if (line.startsWith("data: ")) {
-          try {
-            const message = JSON.parse(line.slice(6));
-            console.log("New message:", message);
-            // Update your state here
-          } catch (err) {
-            console.error("Invalid SSE message:", err);
-          }
-        }
-      }
-    }
-  }
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
@@ -343,14 +298,14 @@ export default function ChatPage() {
         {
           uid: currentUser.uid,
           displayName: currentUser.displayName || "Anonymous",
-          lastSeen: serverTimestamp(),
+          lastSeen: Date.now(), // Use client-side timestamp for consistency
         },
         userRef,
         "set"
       );
 
     updatePresence();
-    const interval = setInterval(updatePresence, 30000);
+    const interval = setInterval(updatePresence, 15000); // Update every 15 seconds
 
     const handleUnload = () => {
       if (currentUser?.uid) {
@@ -379,16 +334,18 @@ export default function ChatPage() {
       onlineUsersRef,
       (snapshot) => {
         const users = snapshot.val() || {};
-        const now = serverTimestamp();
+        console.log("Raw online users data:", users); // Debug log
+        const now = Date.now();
         const activeUsers = Object.values(users)
           .filter(
             (user) => user && user.lastSeen && now - user.lastSeen < 20000
           )
           .map((user) => ({
             uid: user.uid,
-            displayName: user.displayName,
+            displayName: user.displayName || "Anonymous",
             lastSeen: user.lastSeen,
           }));
+        console.log("Filtered active users:", activeUsers); // Debug log
         setOnlineUsers(activeUsers);
       },
       (error) => {
@@ -408,6 +365,7 @@ export default function ChatPage() {
       typingRef,
       (snapshot) => {
         const typingData = snapshot.val() || {};
+        console.log("Raw typing users data:", typingData); // Debug log
         const now = Date.now();
         const activeTypers = Object.values(typingData)
           .filter(
@@ -415,9 +373,10 @@ export default function ChatPage() {
           )
           .map((user) => ({
             uid: user.uid,
-            displayName: user.displayName,
+            displayName: user.displayName || "Anonymous",
           }))
           .filter((user) => user.uid !== currentUser.uid);
+        console.log("Filtered typing users:", activeTypers); // Debug log
         setTypingUsers(activeTypers);
       },
       (error) => {
@@ -426,6 +385,20 @@ export default function ChatPage() {
     );
 
     return () => unsubscribe();
+  }, [currentUser, roomName]);
+  useEffect(() => {
+    return () => {
+      if (currentUser) {
+        saveData(
+          null,
+          `rooms/${roomName}/typingUsers/${currentUser.uid}`,
+          "set"
+        );
+        if (typingTimeoutRef.current) {
+          clearTimeout(typingTimeoutRef.current);
+        }
+      }
+    };
   }, [currentUser, roomName]);
 
   const handleInputChange = (e) => {
