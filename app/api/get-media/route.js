@@ -9,7 +9,7 @@ export async function POST(request) {
   try {
     const base64RoomKey = process.env.MESSAGE_ENCRYPTION_KEY;
     // Parse request body
-    const { roomName, filter } = await request.json();
+    const { roomName } = await request.json();
 
     // Validate inputs
     if (!roomName || !base64RoomKey) {
@@ -37,7 +37,7 @@ export async function POST(request) {
     }
 
     // Fetch and decrypt messages using existing function
-    const messages = await fetchAndDecryptMessages(roomName, filter);
+    const messages = await fetchAndDecryptMessages(roomName);
     console.log("messages in api:", messages);
     // Return decrypted messages
     return NextResponse.json(messages, { status: 200 });

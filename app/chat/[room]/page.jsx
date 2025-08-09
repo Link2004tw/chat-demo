@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { auth, db } from "@/config/firebase";
 import {
   ref,
@@ -31,7 +31,6 @@ import Cookies from "universal-cookie";
 import Message from "@/models/message";
 import ImageMessage from "@/models/imageMessage";
 import { saveData } from "@/utils/database";
-//import { encryptMessage, decryptMessage } from "@/utils/crypto";
 
 const cookies = new Cookies();
 
@@ -46,7 +45,6 @@ const debounce = (func, wait) => {
 export default function ChatPage() {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
-  const [replyToId, setReplyToId] = useState(null);
   const [onlineUsers, setOnlineUsers] = useState([]);
   const [typingUsers, setTypingUsers] = useState([]);
   const [currentUser, setCurrentUser] = useState(null);
@@ -65,6 +63,8 @@ export default function ChatPage() {
   const params = useParams();
   const roomName = params.room;
   const messagesPerPage = 25;
+  const searchParams = useSearchParams();
+  const [replyToId, setReplyToId] = useState(searchParams.get("replyTo"));
 
   const scrollToBottom = (behavior = "smooth") => {
     const container = messagesContainerRef.current;
@@ -127,7 +127,7 @@ export default function ChatPage() {
           },
           body: JSON.stringify({ roomName }),
         });
-        console.log(response);
+        //console.log(response);
 
         if (!response.ok) throw new Error("Failed to fetch messages");
 
@@ -150,27 +150,13 @@ export default function ChatPage() {
       const parsedMessages = JSON.parse(cachedMessages);
       Promise.all(
         parsedMessages.map(async (msg) => {
-          if (msg.isEncrypted === true) {
-            try {
-              if (msg.type === "text") {
-                msg.text = await decryptMessage(msg.text);
-              } else if (msg.type === "file") {
-                msg.fileName = await decryptMessage(msg.fileName);
-                msg.fileURL = await decryptMessage(msg.fileURL);
-              }
-            } catch (error) {
-              console.error("Decryption failed for cached message:", error);
-              return null; // Skip invalid messages
-            }
-          }
           return msg;
         })
-      ).then((decryptedMessages) => {
-        const validMessages = decryptedMessages.filter((msg) => msg !== null);
-        setMessages(validMessages);
-        if (validMessages.length > 0) {
+      ).then((msgs) => {
+        setMessages(msgs);
+        if (msgs.length > 0) {
           oldestTimestampRef.current = Math.min(
-            ...validMessages.map((m) => m.timestamp)
+            ...msgs.map((m) => m.timestamp)
           );
         }
       });
@@ -211,7 +197,7 @@ export default function ChatPage() {
             msg.fileURL = data.fileURL;
           }
         } catch (error) {
-          console.error("Decryption failed:", error);
+          console.log("fetching failed: ", error);
           return; // Skip this message
         }
         setMessages((prev) => {
@@ -283,30 +269,8 @@ export default function ChatPage() {
             return;
           }
 
-          const decryptedMessages = await Promise.all(
-            olderMessages.map(async (msg) => {
-              if (msg.isEncrypted === true) {
-                try {
-                  if (msg.type === "text") {
-                    msg.text = await decryptMessage(msg.text);
-                  } else if (msg.type === "file") {
-                    msg.fileName = await decryptMessage(msg.fileName);
-                    msg.fileURL = await decryptMessage(msg.fileURL);
-                  }
-                } catch (error) {
-                  console.error("Decryption failed:", error);
-                  return null; // Skip invalid messages
-                }
-              }
-              return msg;
-            })
-          );
-
           setMessages((prev) => {
-            const validMessages = decryptedMessages.filter(
-              (msg) => msg !== null
-            );
-            const updatedMessages = [...validMessages, ...prev].sort(
+            const updatedMessages = [...prev, ...prev].sort(
               (a, b) => a.timestamp - b.timestamp
             );
             localStorage.setItem(
@@ -374,7 +338,7 @@ export default function ChatPage() {
       onlineUsersRef,
       (snapshot) => {
         const users = snapshot.val() || {};
-        const now = Date.now();
+        const now = serverTimestamp();
         const activeUsers = Object.values(users)
           .filter(
             (user) => user && user.lastSeen && now - user.lastSeen < 20000
@@ -471,6 +435,9 @@ export default function ChatPage() {
       replyTo: replyToId,
       isEncrypted: true,
     });
+    const formData = new FormData();
+    formData.append("message", JSON.stringify(message.toRTDB()));
+    formData.append("roomName", roomName);
 
     try {
       const token = await auth.currentUser.getIdToken();
@@ -478,14 +445,9 @@ export default function ChatPage() {
       const response = await fetch("/api/send-message", {
         method: "POST",
         headers: {
-          "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({
-          roomId: roomName,
-          userId: currentUser.displayName,
-          message: message.toRTDB(),
-        }),
+        body: formData,
       });
       console.log(await response.json());
 
@@ -594,7 +556,7 @@ export default function ChatPage() {
             <div className="absolute right-0 mt-2 w-48 bg-white dark:bg-gray-800 rounded-md shadow-lg z-30">
               <button
                 onClick={() => {
-                  router.push(`/rooms/${roomName}/media`);
+                  router.push(`/chat/${roomName}/media`);
                   setIsDropdownOpen(false);
                 }}
                 className="block w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"

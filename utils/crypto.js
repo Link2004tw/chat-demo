@@ -1,7 +1,7 @@
 // app/server/fetchAndDecryptMessages.ts
 import { db } from "@/config/admin-firebase";
 import { webcrypto } from "crypto";
-import { get, ref } from "firebase/database";
+import { get, query, ref, orderByChild, equalTo } from "firebase/database";
 
 const subtle = webcrypto.subtle;
 
@@ -70,13 +70,19 @@ export async function decryptMessage(encryptedBase64) {
  * @param {string} roomName - The name of the room to fetch messages from
  * @returns {Promise<Array>} - Decrypted messages with { id, text, sender, timestamp }
  */
-export async function fetchAndDecryptMessages(roomName) {
-  const snapshot = await get(ref(db, `/rooms/${roomName}/messages`));
+export async function fetchAndDecryptMessages(roomName, filter) {
+  let snapshot;
+  const messagesRef = ref(db, `/rooms/${roomName}/messages`);
+  if (filter === "media") {
+    const q = query(messagesRef, orderByChild("type"), equalTo("file"));
+    snapshot = await get(q);
+  } else {
+    snapshot = await get(ref(db, `/rooms/${roomName}/messages`));
+  }
   const exists = snapshot.exists();
   const data = snapshot.val();
   if (!exists) return [];
 
-  console.log(data);
   //console.log(data);
   const decryptedMessages = await Promise.all(
     Object.entries(data).map(async ([id, msgData]) => {
@@ -93,12 +99,16 @@ export async function fetchAndDecryptMessages(roomName) {
             replyTo: msgData.replyTo,
           };
         } else {
+          console.log(msgData.fileName);
+          console.log(msgData.fileUrl);
+          console.log("hi");
+
           const fileName = await decryptMessage(msgData.fileName);
-          const fileUrl = await decryptMessage(msgData.fileUrl);
+          const fileUrl = await decryptMessage(msgData.fileURL);
           return {
             id,
             fileName: fileName,
-            fileUrl: fileUrl,
+            fileURL: fileUrl,
             timestamp: msgData.timestamp,
             user: msgData.user,
             type: msgData.type,

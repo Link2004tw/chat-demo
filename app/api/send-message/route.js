@@ -6,15 +6,12 @@ import { db } from "@/config/admin-firebase";
 
 export async function POST(req) {
   try {
-    // Parse multipart/form-data
-    //console.log(req);
     const formData = await req.formData();
     const file = formData.get("file");
     const message = formData.get("message");
     const roomName = formData.get("roomName");
     console.log(message);
     if (!message || !roomName) {
-      console.log("error1");
       return NextResponse.json(
         { error: "Missing required fields: message, roomName, base64RoomKey" },
         { status: 400 }
@@ -26,7 +23,6 @@ export async function POST(req) {
     try {
       messageData = JSON.parse(message);
     } catch (error) {
-      console.log(2);
       console.log(error);
       return NextResponse.json(
         { error: "Invalid message JSON" },
@@ -107,6 +103,8 @@ export async function POST(req) {
         { error: "Missing text for text message" },
         { status: 400 }
       );
+    } else if (type === "text" && text) {
+      finalText = await encryptMessage(finalText);
     }
 
     const messageToSave = {

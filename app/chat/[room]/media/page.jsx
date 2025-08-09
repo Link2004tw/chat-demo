@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { auth, db } from "@/config/firebase";
 import { ref, onValue, query, orderByChild, get } from "firebase/database";
-import { onAuthStateChanged } from "firebase/auth";
+import { getAuth, onAuthStateChanged } from "firebase/auth";
 import ImageMessageItem from "@/app/components/ImageMessageItem";
 import FileMessageItem from "@/app/components/FileMessageItem";
 import OutlinedButton from "@/app/components/OutlinedButton";
@@ -17,10 +17,6 @@ export default function MediaPage() {
   const [mediaMessages, setMediaMessages] = useState([]);
   const [currentUser, setCurrentUser] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [keyInput, setKeyInput] = useState("");
-  const [keyError, setKeyError] = useState(null);
-  const [showKeyModal, setShowKeyModal] = useState(false);
-  const [encryptionKey, setEncryptionKey] = useState(null);
   const [isCheckingRoom, setIsCheckingRoom] = useState(true);
   const router = useRouter();
   const params = useParams();
@@ -33,18 +29,11 @@ export default function MediaPage() {
     const checkRoom = async () => {
       try {
         setIsCheckingRoom(true);
-        const roomRef = ref(db, `rooms/${roomName}`);
-        const snapshot = await get(roomRef);
-        if (!snapshot.exists()) {
-          // Room doesn't exist; redirect to ChatPage to create it
-          router.push(`/rooms/${roomName}`);
-        } else {
-          // Room exists; prompt for key
-          setShowKeyModal(true);
-        }
+        const data = await fetchMedia();
+        setMediaMessages(data);
       } catch (error) {
         console.error("Error checking room:", error);
-        setKeyError("Failed to initialize room. Please try again.");
+        //setKeyError("Failed to initialize room. Please try again.");
       } finally {
         setIsCheckingRoom(false);
       }
@@ -53,25 +42,8 @@ export default function MediaPage() {
     checkRoom();
   }, [currentUser, roomName, router]);
 
-  const handleKeySubmit = async (e) => {
-    e.preventDefault();
-    if (!keyInput.trim()) {
-      setKeyError("A valid key is required.");
-      return;
-    }
-    try {
-      const key = await getRoomKey(keyInput);
-      setEncryptionKey(key);
-      setShowKeyModal(false);
-      setKeyError(null);
-    } catch (error) {
-      console.error("Failed to import key:", error);
-      setKeyError(error.message);
-    }
-  };
-
   const handleReply = (messageId) => {
-    router.push(`/rooms/${roomName}?replyTo=${messageId}`);
+    router.push(`/chat/${roomName}?replyTo=${messageId}`);
   };
 
   useEffect(() => {
@@ -86,59 +58,46 @@ export default function MediaPage() {
     return () => unsubscribe();
   }, [router]);
 
-  useEffect(() => {
-    if (!currentUser || !roomName || !encryptionKey) return;
+  const fetchMedia = async () => {
+    const idToken = await getAuth().currentUser.getIdToken();
 
-    const messagesRef = ref(db, `rooms/${roomName}/messages`);
-    const messagesQuery = query(messagesRef, orderByChild("timestamp"));
-
-    const unsubscribe = onValue(
-      messagesQuery,
-      async (snapshot) => {
-        const messages = [];
-        snapshot.forEach((childSnapshot) => {
-          const msg = { ...childSnapshot.val(), id: childSnapshot.key };
-          if (msg && msg.type === "file" && msg.timestamp) {
-            messages.push(msg);
-          }
-        });
-
-        const decryptedMessages = await Promise.all(
-          messages.map(async (msg) => {
-            if (msg.isEncrypted === true) {
-              try {
-                msg.fileName = await decryptMessage(
-                  msg.fileName,
-                  encryptionKey
-                );
-                msg.fileURL = await decryptMessage(msg.fileURL, encryptionKey);
-              } catch (error) {
-                console.error("Decryption failed:", error);
-                return { ...msg, decryptionFailed: true };
-              }
-            }
-            return msg;
-          })
-        );
-
-        setMediaMessages(
-          decryptedMessages
-            .filter((msg) => msg !== null)
-            .sort((a, b) => a.timestamp - b.timestamp)
-        );
-        setIsLoading(false);
+    const response = await fetch("/api/get-messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${idToken}`, // Attach token here
       },
-      (error) => {
-        console.error("Error fetching media messages:", error);
-        setIsLoading(false);
-      }
-    );
+      body: JSON.stringify({
+        filter: "media",
+        roomName,
+      }),
+    });
+    if (!response.ok) {
+      alert("Error fetching media");
+      router.push(`/chat/${roomName}`);
+    }
+    const data = await response.json();
+    console.log(data);
+    return data;
+  };
 
-    return () => unsubscribe();
-  }, [currentUser, roomName, encryptionKey]);
+  useEffect(() => {
+    if (!currentUser || !roomName) return;
+    const fetchMediaHandler = async () => {
+      const data = await fetchMedia();
+      setMediaMessages(
+        data
+          .filter((msg) => msg !== null)
+          .sort((a, b) => a.timestamp - b.timestamp)
+      );
+      setIsLoading(false);
+    };
+
+    fetchMediaHandler();
+  }, [currentUser, roomName]);
 
   const handleBackToChat = () => {
-    router.push(`/rooms/${roomName}`);
+    router.push(`/chat/${roomName}`);
   };
 
   if (!currentUser || isCheckingRoom)
@@ -148,34 +107,6 @@ export default function MediaPage() {
 
   return (
     <div className="h-screen flex flex-col bg-gray-100 dark:bg-gray-900">
-      {showKeyModal && !encryptionKey && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-lg max-w-md w-full">
-            <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
-              Enter Room Key
-            </h2>
-            <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
-              Please provide the base64-encoded key for {roomName} to view
-              media.
-            </p>
-            <form onSubmit={handleKeySubmit}>
-              <input
-                type="text"
-                className="w-full px-4 py-2 rounded-xl border border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none mb-4"
-                placeholder="Base64-encoded key"
-                value={keyInput}
-                onChange={(e) => setKeyInput(e.target.value)}
-              />
-              {keyError && (
-                <p className="text-red-500 text-sm mb-4">{keyError}</p>
-              )}
-              <PrimaryButton type="submit" variant="primary" size="md">
-                View Media
-              </PrimaryButton>
-            </form>
-          </div>
-        </div>
-      )}
       <div className="fixed top-0 left-0 right-0 z-20 p-4 bg-blue-600 text-white text-lg font-semibold flex justify-between items-center">
         <span>Media: {roomName}</span>
         <OutlinedButton
