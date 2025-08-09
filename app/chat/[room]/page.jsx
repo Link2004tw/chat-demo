@@ -56,7 +56,7 @@ export default function ChatPage() {
   const oldestTimestampRef = useRef(null);
   const typingTimeoutRef = useRef(null);
   const dropdownRef = useRef(null);
-  const eventSourceRef = useRef(null);
+  const textareaRef = useRef(null);
 
   const router = useRouter();
   const params = useParams();
@@ -72,6 +72,12 @@ export default function ChatPage() {
         top: container.scrollHeight,
         behavior,
       });
+    }
+  };
+  const handleKeyDown = (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      sendMessage(e);
     }
   };
 
@@ -90,9 +96,15 @@ export default function ChatPage() {
 
   const handleReply = (messageId) => {
     setReplyToId(messageId);
-    const inputElement = document.querySelector('input[type="text"]');
-    if (inputElement) inputElement.focus();
+    if (textareaRef.current) textareaRef.current.focus();
   };
+  useEffect(() => {
+    const textarea = textareaRef.current;
+    if (textarea) {
+      textarea.style.height = "auto";
+      textarea.style.height = `${Math.min(textarea.scrollHeight, 120)}px`; // Max height of 120px
+    }
+  }, [input]);
 
   const cancelReply = () => {
     setReplyToId(null);
@@ -675,12 +687,22 @@ export default function ChatPage() {
           </div>
         )}
         <form onSubmit={sendMessage} className="flex gap-2">
-          <input
+          {/* <input
             type="text"
             className="flex-1 px-4 py-2 rounded-xl border border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none"
             placeholder="Type your message..."
             value={input}
             onChange={handleInputChange}
+          /> */}
+          <textarea
+            ref={textareaRef}
+            className="flex-1 px-4 py-2 rounded-xl border border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none resize-none"
+            placeholder="Type your message..."
+            value={input}
+            onChange={handleInputChange}
+            onKeyDown={handleKeyDown}
+            rows={1}
+            style={{ minHeight: "40px", maxHeight: "120px" }}
           />
           <input
             type="file"
