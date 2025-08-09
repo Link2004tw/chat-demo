@@ -298,7 +298,7 @@ export default function ChatPage() {
         {
           uid: currentUser.uid,
           displayName: currentUser.displayName || "Anonymous",
-          lastSeen: Date.now(), // Use client-side timestamp for consistency
+          lastSeen: serverTimestamp(), // Use client-side timestamp for consistency
         },
         userRef,
         "set"
