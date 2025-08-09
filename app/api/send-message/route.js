@@ -10,7 +10,6 @@ export async function POST(req) {
     const file = formData.get("file");
     const message = formData.get("message");
     const roomName = formData.get("roomName");
-    console.log(message);
     if (!message || !roomName) {
       return NextResponse.json(
         { error: "Missing required fields: message, roomName, base64RoomKey" },
@@ -49,7 +48,6 @@ export async function POST(req) {
     }
     const { text, user, replyTo, type, fileName, fileURL, publicId } =
       messageData;
-    console.log(user, type);
     if (!user || !type) {
       return NextResponse.json(
         { error: "Missing required message fields: user, userUid, type" },
@@ -117,7 +115,6 @@ export async function POST(req) {
       replyTo: replyTo || null,
       type,
     };
-    console.log(roomName);
     const messageRef = await push(
       ref(db, `/rooms/${roomName}/messages`),
       messageToSave
@@ -142,7 +139,6 @@ export async function POST(req) {
       type,
     };
 
-    console.log("Saved message:", savedMessage);
     return NextResponse.json(savedMessage, { status: 200 });
   } catch (err) {
     console.error("[Send Message Error]", err);

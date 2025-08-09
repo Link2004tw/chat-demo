@@ -19,7 +19,6 @@ export default function HomePage() {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       const token = cookies.get("auth-token");
       if (user) {
-        console.log("oli fi eh eh ");
         setIsAuth(true);
         setCurrentUser(user);
       } else {

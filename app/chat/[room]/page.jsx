@@ -132,7 +132,6 @@ export default function ChatPage() {
         if (!response.ok) throw new Error("Failed to fetch messages");
 
         const data = await response.json();
-        console.log(data);
         setMessages(data || []);
       } else {
         router.push("/");
@@ -191,7 +190,6 @@ export default function ChatPage() {
             msg.fileURL = data.fileURL;
           }
         } catch (error) {
-          console.log("fetching failed: ", error);
           return; // Skip this message
         }
         setMessages((prev) => {
@@ -334,7 +332,6 @@ export default function ChatPage() {
       onlineUsersRef,
       (snapshot) => {
         const users = snapshot.val() || {};
-        console.log("Raw online users data:", users); // Debug log
         const now = Date.now();
         const activeUsers = Object.values(users)
           .filter(
@@ -345,7 +342,6 @@ export default function ChatPage() {
             displayName: user.displayName || "Anonymous",
             lastSeen: user.lastSeen,
           }));
-        console.log("Filtered active users:", activeUsers); // Debug log
         setOnlineUsers(activeUsers);
       },
       (error) => {
@@ -365,7 +361,6 @@ export default function ChatPage() {
       typingRef,
       (snapshot) => {
         const typingData = snapshot.val() || {};
-        console.log("Raw typing users data:", typingData); // Debug log
         const now = Date.now();
         const activeTypers = Object.values(typingData)
           .filter(
@@ -376,7 +371,6 @@ export default function ChatPage() {
             displayName: user.displayName || "Anonymous",
           }))
           .filter((user) => user.uid !== currentUser.uid);
-        console.log("Filtered typing users:", activeTypers); // Debug log
         setTypingUsers(activeTypers);
       },
       (error) => {
@@ -463,8 +457,12 @@ export default function ChatPage() {
         },
         body: formData,
       });
-      console.log(await response.json());
-
+      if (!response.ok) {
+        alert("Error uploading");
+      } else {
+        const data = await response.json();
+        console.log(data);
+      }
       //await saveData(message.toRTDB(), `rooms/${roomName}/messages`, "push");
       setInput("");
       setReplyToId(null);
@@ -496,7 +494,7 @@ export default function ChatPage() {
       }
 
       const isImage = file.type.startsWith("image/");
-      const uploadType = isImage ? "image" : "auto";
+      //const uploadType = isImage ? "image" : "auto";
       const formData = new FormData();
       formData.append("file", file);
       formData.append("folder", `rooms/${roomName}`);
@@ -521,7 +519,8 @@ export default function ChatPage() {
         },
         body: formData,
       });
-      console.log(res);
+      const data = await res.json();
+      console.log(data);
       //await saveData(message.toRTDB(), `rooms/${roomName}/messages`, "push");
 
       setReplyToId(null);
