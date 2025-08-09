@@ -5,7 +5,6 @@ import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { auth, db } from "@/config/firebase";
 import {
   ref,
-  onChildAdded,
   onValue,
   query,
   orderByChild,
@@ -13,6 +12,7 @@ import {
   endBefore,
   get,
   serverTimestamp,
+  onChildAdded,
 } from "firebase/database";
 
 import {
@@ -27,12 +27,10 @@ import ImageMessageItem from "@/app/components/ImageMessageItem";
 import FileMessageItem from "@/app/components/FileMessageItem";
 import PrimaryButton from "@/app/components/PrimaryButton";
 import OutlinedButton from "@/app/components/OutlinedButton";
-import Cookies from "universal-cookie";
 import Message from "@/models/message";
 import ImageMessage from "@/models/imageMessage";
 import { saveData } from "@/utils/database";
-
-const cookies = new Cookies();
+import { EventSourcePolyfill } from "event-source-polyfill";
 
 const debounce = (func, wait) => {
   let timeout;
@@ -58,6 +56,7 @@ export default function ChatPage() {
   const oldestTimestampRef = useRef(null);
   const typingTimeoutRef = useRef(null);
   const dropdownRef = useRef(null);
+  const eventSourceRef = useRef(null);
 
   const router = useRouter();
   const params = useParams();
@@ -114,10 +113,56 @@ export default function ChatPage() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
+  async function connectMessageStream(roomName) {
+    const token = await auth.currentUser.getIdToken();
+
+    const response = await fetch(
+      `/api/messages/stream?room=${encodeURIComponent(roomName)}`,
+      {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: "text/event-stream",
+        },
+      }
+    );
+
+    if (!response.ok) {
+      console.error("SSE connection failed:", response.statusText);
+      return;
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder("utf-8");
+    let buffer = "";
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      let lines = buffer.split("\n");
+      buffer = lines.pop();
+
+      for (const line of lines) {
+        if (line.startsWith("data: ")) {
+          try {
+            const message = JSON.parse(line.slice(6));
+            console.log("New message:", message);
+            // Update your state here
+          } catch (err) {
+            console.error("Invalid SSE message:", err);
+          }
+        }
+      }
+    }
+  }
+
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (user) {
         setCurrentUser(user);
+
         const idToken = await user.getIdToken();
         const response = await fetch("/api/get-messages", {
           method: "POST",
@@ -161,16 +206,10 @@ export default function ChatPage() {
         }
       });
     }
-
     const messagesRef = ref(db, `rooms/${roomName}/messages`);
-    const messagesQuery = query(
-      messagesRef,
-      orderByChild("timestamp"),
-      limitToLast(messagesPerPage)
-    );
 
     const unsubscribe = onChildAdded(
-      messagesQuery,
+      messagesRef,
       async (snapshot) => {
         const msg = { ...snapshot.val(), id: snapshot.key };
         if (!msg || !msg.timestamp) {
@@ -218,7 +257,9 @@ export default function ChatPage() {
       }
     );
 
-    return () => unsubscribe();
+    return () => {
+      unsubscribe();
+    };
   }, [currentUser, roomName]);
 
   useEffect(() => {

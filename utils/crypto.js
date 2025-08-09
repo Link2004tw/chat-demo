@@ -99,10 +99,6 @@ export async function fetchAndDecryptMessages(roomName, filter) {
             replyTo: msgData.replyTo,
           };
         } else {
-          console.log(msgData.fileName);
-          console.log(msgData.fileUrl);
-          console.log("hi");
-
           const fileName = await decryptMessage(msgData.fileName);
           const fileUrl = await decryptMessage(msgData.fileURL);
           return {

@@ -40,7 +40,7 @@ export async function POST(request) {
     if (message.type === "text") {
       message.text = await decryptMessage(message.text);
     } else {
-      console.log(message);
+      //console.log(message);
       message.fileName = await decryptMessage(message.fileName);
       message.fileURL = await decryptMessage(message.fileURL);
     }

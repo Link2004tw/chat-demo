@@ -38,7 +38,7 @@ export async function POST(request) {
 
     // Fetch and decrypt messages using existing function
     const messages = await fetchAndDecryptMessages(roomName, filter);
-    console.log("messages in api:", messages);
+    //console.log("messages in api:", messages);
     // Return decrypted messages
     return NextResponse.json(messages, { status: 200 });
   } catch (error) {
