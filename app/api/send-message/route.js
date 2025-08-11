@@ -99,8 +99,6 @@ export async function POST(req) {
       const data = await response.json();
       finalFileName = await encryptMessage(file.name);
       finalFileURL = await encryptMessage(data.secure_url);
-      console.log(finalFileName, finalFileURL);
-      console.log(data);
 
       finalPublicId = data.public_id;
     } else if (type === "text" && !text) {
