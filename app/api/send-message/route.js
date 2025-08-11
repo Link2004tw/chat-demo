@@ -70,7 +70,12 @@ export async function POST(req) {
         );
       }
 
-      // Upload to Cloudinary
+      const isImage = file.type.startsWith("image/");
+      const isZip = file.type === "application/x-zip-compressed";
+      const uploadType = isImage ? "image" : isZip ? "raw" : "auto";
+      const publicId = `rooms/${roomName}/${file.name}`; // Preserve original filename with extension
+
+      //console.log(file.type, isZip);
       const uploadFormData = new FormData();
       uploadFormData.append("file", file);
       uploadFormData.append(
@@ -79,9 +84,8 @@ export async function POST(req) {
       );
       uploadFormData.append("cloud_name", process.env.CLOUDINARY_CLOUD_NAME);
       uploadFormData.append("folder", `rooms/${roomName}`);
+      uploadFormData.append("public_id", publicId); // Explicitly set public_id
 
-      const isImage = file.type.startsWith("image/");
-      const uploadType = isImage ? "image" : "auto";
       const response = await fetch(
         `https://api.cloudinary.com/v1_1/${process.env.CLOUDINARY_CLOUD_NAME}/${uploadType}/upload`,
         { method: "POST", body: uploadFormData }
@@ -95,6 +99,8 @@ export async function POST(req) {
       const data = await response.json();
       finalFileName = await encryptMessage(file.name);
       finalFileURL = await encryptMessage(data.secure_url);
+      console.log(finalFileName, finalFileURL);
+
       finalPublicId = data.public_id;
     } else if (type === "text" && !text) {
       return NextResponse.json(

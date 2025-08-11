@@ -28,6 +28,7 @@ export default function FileMessageItem({ message, messages, onReply }) {
       }
     }
   };
+  //console.log(fileName, fileURL);
 
   return (
     <div
