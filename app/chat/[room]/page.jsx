@@ -75,7 +75,7 @@ export default function ChatPage() {
   const handleKeyDown = (e) => {
     if (e.key === "Enter" && !e.shiftKey) {
       const value = textareaRef.current?.value || input; // Use ref or state
-      if (value.endsWith(" ")) {
+      if (!value.endsWith(" ")) {
         console.log("it does");
         e.preventDefault();
         sendMessage(e);
