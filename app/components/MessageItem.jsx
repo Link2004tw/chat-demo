@@ -50,20 +50,43 @@ export default function MessageItem({ message, messages, onReply }) {
     }
   };
 
-  const renderTextWithLinks = (text) => (
-    <Linkify
-      options={{
-        className: isCurrentUser
-          ? "text-blue-100 hover:underline"
-          : "text-blue-600 dark:text-blue-400 hover:underline",
-        target: "_blank",
-        rel: "noopener noreferrer",
-      }}
-    >
-      {text}
-    </Linkify>
-  );
+  // const renderTextWithLinks = (text) => (
+  //   <Linkify
+  //     options={{
+  //       className: isCurrentUser
+  //         ? "text-blue-100 hover:underline"
+  //         : "text-blue-600 dark:text-blue-400 hover:underline",
+  //       target: "_blank",
+  //       rel: "noopener noreferrer",
+  //     }}
+  //   >
+  //     {text}
+  //   </Linkify>
+  // );
 
+  const renderTextWithLinks = (text) => {
+    if (!text || typeof text !== "string") {
+      return <p className="text-red-500">Unable to display message</p>;
+    }
+    // Split text by newlines and render each segment with Linkify
+    const lines = text.split("\n");
+    return lines.map((line, index) => (
+      <span key={index}>
+        <Linkify
+          options={{
+            className: isCurrentUser
+              ? "text-blue-100 hover:underline"
+              : "text-blue-600 dark:text-blue-400 hover:underline",
+            target: "_blank",
+            rel: "noopener noreferrer",
+          }}
+        >
+          {line}
+        </Linkify>
+        {index < lines.length - 1 && <br />} {/* Add <br> between lines */}
+      </span>
+    ));
+  };
   return (
     <div className="relative group">
       <div

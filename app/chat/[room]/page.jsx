@@ -14,7 +14,6 @@ import {
   serverTimestamp,
   onChildAdded,
 } from "firebase/database";
-
 import {
   ArrowUpTrayIcon,
   XMarkIcon,
@@ -30,7 +29,6 @@ import OutlinedButton from "@/app/components/OutlinedButton";
 import Message from "@/models/message";
 import ImageMessage from "@/models/imageMessage";
 import { saveData } from "@/utils/database";
-import { EventSourcePolyfill } from "event-source-polyfill";
 
 const debounce = (func, wait) => {
   let timeout;
@@ -76,8 +74,12 @@ export default function ChatPage() {
   };
   const handleKeyDown = (e) => {
     if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      sendMessage(e);
+      const value = textareaRef.current?.value || input; // Use ref or state
+      if (value.endsWith(" ")) {
+        console.log("it does");
+        e.preventDefault();
+        sendMessage(e);
+      }
     }
   };
 
@@ -407,6 +409,26 @@ export default function ChatPage() {
     };
   }, [currentUser, roomName]);
 
+  // const handleInputChange = throttle((e) => {
+  //   const value = e.target.value;
+  //   setInput(value);
+  //   if (value.trim()) {
+  //     updateTypingStatus();
+  //     if (typingTimeoutRef.current) {
+  //       clearTimeout(typingTimeoutRef.current);
+  //     }
+  //     typingTimeoutRef.current = setTimeout(() => {
+  //       saveData(
+  //         null,
+  //         `rooms/${roomName}/typingUsers/${currentUser.uid}`,
+  //         "set"
+  //       );
+  //     }, 5000);
+  //   } else {
+  //     saveData(null, `rooms/${roomName}/typingUsers/${currentUser.uid}`, "set");
+  //   }
+  // }, 150);
+
   const handleInputChange = (e) => {
     setInput(e.target.value);
     if (e.target.value.trim()) {
@@ -505,8 +527,6 @@ export default function ChatPage() {
         return;
       }
 
-      const isImage = file.type.startsWith("image/");
-      //const uploadType = isImage ? "image" : "auto";
       const formData = new FormData();
       formData.append("file", file);
       formData.append("folder", `rooms/${roomName}`);
@@ -560,6 +580,13 @@ export default function ChatPage() {
     }
   };
 
+  const handleInputResize = () => {
+    const textarea = textareaRef.current;
+    if (textarea) {
+      textarea.style.height = "auto";
+      textarea.style.height = `${Math.min(textarea.scrollHeight, 120)}px`;
+    }
+  };
   const repliedMessage = replyToId
     ? messages.find((msg) => msg.id === replyToId)
     : null;
@@ -687,22 +714,22 @@ export default function ChatPage() {
           </div>
         )}
         <form onSubmit={sendMessage} className="flex gap-2">
-          {/* <input
-            type="text"
-            className="flex-1 px-4 py-2 rounded-xl border border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none"
-            placeholder="Type your message..."
-            value={input}
-            onChange={handleInputChange}
-          /> */}
           <textarea
             ref={textareaRef}
             className="flex-1 px-4 py-2 rounded-xl border border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none resize-none"
             placeholder="Type your message..."
             value={input}
-            onChange={handleInputChange}
+            aria-multiline={true}
+            onInput={(e) => {
+              handleInputChange(e);
+              handleInputResize();
+            }}
             onKeyDown={handleKeyDown}
             rows={1}
             style={{ minHeight: "40px", maxHeight: "120px" }}
+            autoCorrect="off"
+            autoComplete="off"
+            spellCheck="false"
           />
           <input
             type="file"
