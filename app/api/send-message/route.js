@@ -74,8 +74,7 @@ export async function POST(req) {
       const isImage = file.type.startsWith("image/");
       const isZip = file.type === "application/x-zip-compressed";
       const uploadType = isImage ? "image" : isZip ? "raw" : "auto";
-      //const publicId = `rooms/${roomName}/${file.name}`; // Preserve original filename with extension
-      //console.log(file.type, isZip);
+
       const uploadFormData = new FormData();
       uploadFormData.append("file", file);
       uploadFormData.append(

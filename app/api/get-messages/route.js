@@ -3,7 +3,6 @@ import { fetchAndDecryptMessages } from "@/utils/crypto"; // from "@/lib/fetchAn
 import { getAuth } from "firebase-admin/auth";
 import { configDotenv } from "dotenv";
 configDotenv();
-// Note: Firebase Admin is initialized in admin-firebase.js, and db is imported in fetchAndDecryptMessages
 
 export async function POST(request) {
   try {
@@ -38,8 +37,7 @@ export async function POST(request) {
 
     // Fetch and decrypt messages using existing function
     const messages = await fetchAndDecryptMessages(roomName, filter);
-    //console.log("messages in api:", messages);
-    // Return decrypted messages
+
     return NextResponse.json(messages, { status: 200 });
   } catch (error) {
     console.error("Error in get-messages API:", error);

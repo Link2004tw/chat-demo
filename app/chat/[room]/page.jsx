@@ -410,26 +410,6 @@ export default function ChatPage() {
     };
   }, [currentUser, roomName]);
 
-  // const handleInputChange = throttle((e) => {
-  //   const value = e.target.value;
-  //   setInput(value);
-  //   if (value.trim()) {
-  //     updateTypingStatus();
-  //     if (typingTimeoutRef.current) {
-  //       clearTimeout(typingTimeoutRef.current);
-  //     }
-  //     typingTimeoutRef.current = setTimeout(() => {
-  //       saveData(
-  //         null,
-  //         `rooms/${roomName}/typingUsers/${currentUser.uid}`,
-  //         "set"
-  //       );
-  //     }, 5000);
-  //   } else {
-  //     saveData(null, `rooms/${roomName}/typingUsers/${currentUser.uid}`, "set");
-  //   }
-  // }, 150);
-
   const handleInputChange = (e) => {
     setInput(e.target.value);
     if (e.target.value.trim()) {
@@ -516,55 +496,6 @@ export default function ChatPage() {
     fileInputRef.current?.click();
   };
 
-  // const handleFileChange = async (e) => {
-  //   const file = e.target.files[0];
-  //   if (!file) return;
-
-  //   setIsUploading(true);
-  //   try {
-  //     const maxSize = 10 * 1024 * 1024;
-  //     if (file.size > maxSize) {
-  //       alert("File size exceeds 10MB limit.");
-  //       return;
-  //     }
-
-  //     const formData = new FormData();
-  //     formData.append("file", file);
-  //     formData.append("folder", `rooms/${roomName}`);
-  //     const encryptedFileName = "";
-  //     const encryptedFileURL = "";
-  //     const message = new ImageMessage({
-  //       user: currentUser.displayName || "Anonymous",
-  //       userUid: currentUser.uid,
-  //       fileName: encryptedFileName,
-  //       fileURL: encryptedFileURL,
-  //       timestamp: serverTimestamp(),
-  //       replyTo: replyToId,
-  //       isEncrypted: true,
-  //     });
-  //     formData.append("message", JSON.stringify(message.toRTDB()));
-  //     formData.append("roomName", roomName);
-  //     const idToken = await getAuth().currentUser.getIdToken();
-  //     const res = await fetch("/api/send-message", {
-  //       method: "POST",
-  //       headers: {
-  //         Authorization: `Bearer ${idToken}`, // Attach token here
-  //       },
-  //       body: formData,
-  //     });
-  //     const data = await res.json();
-  //     console.log(data);
-  //     //await saveData(message.toRTDB(), `rooms/${roomName}/messages`, "push");
-
-  //     setReplyToId(null);
-  //     fileInputRef.current.value = "";
-  //   } catch (error) {
-  //     console.error("File upload failed:", error);
-  //     alert(`Failed to upload file: ${error.message}`);
-  //   } finally {
-  //     setIsUploading(false);
-  //   }
-  // };
   const handleFileChange = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
