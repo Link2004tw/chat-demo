@@ -1,3 +1,5 @@
+// "use client";
+
 import { auth } from "@/config/firebase";
 
 function formatTimestamp(timestamp) {
@@ -11,7 +13,7 @@ function formatTimestamp(timestamp) {
 }
 
 export default function ImageMessageItem({ message, messages, onReply }) {
-  const { user, fileName, fileURL, timestamp, replyTo, id } = message;
+  const { user, fileName, fileURL, timestamp, replyTo, id, caption } = message;
   const isCurrentUser = user === auth.currentUser?.displayName;
   const formattedTimestamp = timestamp ? formatTimestamp(timestamp) : null;
   const repliedMessage = replyTo
@@ -58,12 +60,25 @@ export default function ImageMessageItem({ message, messages, onReply }) {
       typeof fileURL === "string" &&
       fileName &&
       typeof fileName === "string" ? (
-        <img
-          src={fileURL}
-          alt={fileName}
-          className="max-w-full h-auto rounded-lg my-2"
-          loading="lazy"
-        />
+        <div>
+          <img
+            src={fileURL}
+            alt={fileName}
+            className="max-w-full h-auto rounded-lg my-2"
+            loading="lazy"
+          />
+          {caption && typeof caption === "string" && (
+            <p
+              className={`text-sm italic mt-1 ${
+                isCurrentUser
+                  ? "text-white"
+                  : "text-gray-800 dark:text-gray-200"
+              }`}
+            >
+              {caption}
+            </p>
+          )}
+        </div>
       ) : (
         <p className="text-red-500">Unable to display image</p>
       )}

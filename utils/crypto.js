@@ -101,6 +101,9 @@ export async function fetchAndDecryptMessages(roomName, filter) {
         } else {
           const fileName = await decryptMessage(msgData.fileName);
           const fileUrl = await decryptMessage(msgData.fileURL);
+          const caption = msgData.caption
+            ? await decryptMessage(msgData.caption)
+            : null;
           return {
             id,
             fileName: fileName,
@@ -109,6 +112,7 @@ export async function fetchAndDecryptMessages(roomName, filter) {
             user: msgData.user,
             type: msgData.type,
             replyTo: msgData.replyTo,
+            caption: caption,
           };
         }
       } catch (err) {

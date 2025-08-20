@@ -46,7 +46,7 @@ export async function POST(req) {
         { status: 401 }
       );
     }
-    const { text, user, replyTo, type, fileName, fileURL, publicId } =
+    const { text, user, replyTo, type, fileName, fileURL, publicId, caption } =
       messageData;
     if (!user || !type) {
       return NextResponse.json(
@@ -59,6 +59,7 @@ export async function POST(req) {
     let finalFileName = fileName;
     let finalFileURL = fileURL;
     let finalPublicId = publicId;
+    let finalCaption = caption || null;
 
     if (type === "file" && file) {
       // Validate file
@@ -74,7 +75,6 @@ export async function POST(req) {
       const isZip = file.type === "application/x-zip-compressed";
       const uploadType = isImage ? "image" : isZip ? "raw" : "auto";
       //const publicId = `rooms/${roomName}/${file.name}`; // Preserve original filename with extension
-      console.log(fileURL);
       //console.log(file.type, isZip);
       const uploadFormData = new FormData();
       uploadFormData.append("file", file);
@@ -85,7 +85,6 @@ export async function POST(req) {
       uploadFormData.append("cloud_name", process.env.CLOUDINARY_CLOUD_NAME);
       uploadFormData.append("folder", `rooms/${roomName}`);
       //uploadFormData.append("public_id", publicId); // Explicitly set public_id
-
       const response = await fetch(
         `https://api.cloudinary.com/v1_1/${process.env.CLOUDINARY_CLOUD_NAME}/${uploadType}/upload`,
         { method: "POST", body: uploadFormData }
@@ -99,7 +98,8 @@ export async function POST(req) {
       const data = await response.json();
       finalFileName = await encryptMessage(file.name);
       finalFileURL = await encryptMessage(data.secure_url);
-
+      finalCaption = await encryptMessage(finalCaption);
+      console.log(finalCaption);
       finalPublicId = data.public_id;
     } else if (type === "text" && !text) {
       return NextResponse.json(
@@ -119,12 +119,16 @@ export async function POST(req) {
       timestamp: serverTimestamp(),
       replyTo: replyTo || null,
       type,
+      caption: finalCaption,
     };
     const messageRef = await push(
       ref(db, `/rooms/${roomName}/messages`),
       messageToSave
     );
-
+    const decryptedCaption =
+      type === "file" && finalCaption
+        ? await decryptMessage(finalCaption)
+        : null;
     const savedMessage = {
       id: messageRef.key,
       text:
@@ -142,6 +146,7 @@ export async function POST(req) {
       timestamp: serverTimestamp(),
       replyTo: replyTo || null,
       type,
+      caption: decryptedCaption,
     };
 
     return NextResponse.json(savedMessage, { status: 200 });

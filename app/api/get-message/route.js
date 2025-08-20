@@ -43,6 +43,9 @@ export async function POST(request) {
       //console.log(message);
       message.fileName = await decryptMessage(message.fileName);
       message.fileURL = await decryptMessage(message.fileURL);
+      message.caption = message.caption
+        ? await decryptMessage(message.caption)
+        : null;
     }
     // Return decrypted messages
     return NextResponse.json(message, { status: 200 });

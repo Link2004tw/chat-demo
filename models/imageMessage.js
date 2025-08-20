@@ -12,8 +12,20 @@ export default class ImageMessage {
    * @param {string} params.publicId - Cloudinary public ID for the file
    * @param {number} params.timestamp - Unix timestamp in milliseconds
    * @param {string} [params.replyTo] - ID of the message being replied to (optional)
+   * @param {string} [params.caption] - Caption for the image (optional)
+   * @param {boolean} [params.isEncrypted] - Whether the message is encrypted (optional)
    */
-  constructor({ id, user, fileName, fileURL, publicId, timestamp, replyTo }) {
+  constructor({
+    id,
+    user,
+    fileName,
+    fileURL,
+    publicId,
+    timestamp,
+    replyTo,
+    caption,
+    isEncrypted,
+  }) {
     this.id = id || null;
     this.user = user;
     this.fileName = fileName;
@@ -22,6 +34,8 @@ export default class ImageMessage {
     this.type = "file";
     this.timestamp = timestamp || Date.now();
     this.replyTo = replyTo || null;
+    this.caption = caption || null;
+    this.isEncrypted = isEncrypted || false;
   }
 
   /**
@@ -36,12 +50,16 @@ export default class ImageMessage {
       publicId: this.publicId,
       type: this.type,
       timestamp: this.timestamp,
+      isEncrypted: this.isEncrypted,
     };
     if (this.id) {
       data.id = this.id;
     }
     if (this.replyTo) {
       data.replyTo = this.replyTo;
+    }
+    if (this.caption) {
+      data.caption = this.caption;
     }
     return data;
   }

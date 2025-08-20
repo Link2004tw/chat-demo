@@ -202,6 +202,7 @@ export default function ChatPage() {
             const data = await response.json();
             msg.fileName = data.fileName;
             msg.fileURL = data.fileURL;
+            msg.caption = data.caption ? data.caption : null;
           }
         } catch (error) {
           return; // Skip this message
@@ -515,6 +516,55 @@ export default function ChatPage() {
     fileInputRef.current?.click();
   };
 
+  // const handleFileChange = async (e) => {
+  //   const file = e.target.files[0];
+  //   if (!file) return;
+
+  //   setIsUploading(true);
+  //   try {
+  //     const maxSize = 10 * 1024 * 1024;
+  //     if (file.size > maxSize) {
+  //       alert("File size exceeds 10MB limit.");
+  //       return;
+  //     }
+
+  //     const formData = new FormData();
+  //     formData.append("file", file);
+  //     formData.append("folder", `rooms/${roomName}`);
+  //     const encryptedFileName = "";
+  //     const encryptedFileURL = "";
+  //     const message = new ImageMessage({
+  //       user: currentUser.displayName || "Anonymous",
+  //       userUid: currentUser.uid,
+  //       fileName: encryptedFileName,
+  //       fileURL: encryptedFileURL,
+  //       timestamp: serverTimestamp(),
+  //       replyTo: replyToId,
+  //       isEncrypted: true,
+  //     });
+  //     formData.append("message", JSON.stringify(message.toRTDB()));
+  //     formData.append("roomName", roomName);
+  //     const idToken = await getAuth().currentUser.getIdToken();
+  //     const res = await fetch("/api/send-message", {
+  //       method: "POST",
+  //       headers: {
+  //         Authorization: `Bearer ${idToken}`, // Attach token here
+  //       },
+  //       body: formData,
+  //     });
+  //     const data = await res.json();
+  //     console.log(data);
+  //     //await saveData(message.toRTDB(), `rooms/${roomName}/messages`, "push");
+
+  //     setReplyToId(null);
+  //     fileInputRef.current.value = "";
+  //   } catch (error) {
+  //     console.error("File upload failed:", error);
+  //     alert(`Failed to upload file: ${error.message}`);
+  //   } finally {
+  //     setIsUploading(false);
+  //   }
+  // };
   const handleFileChange = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -527,6 +577,12 @@ export default function ChatPage() {
         return;
       }
 
+      const caption = prompt("Enter a caption for the image (optional):");
+      if (caption === null) {
+        setIsUploading(false);
+        return; // User cancelled the prompt
+      }
+
       const formData = new FormData();
       formData.append("file", file);
       formData.append("folder", `rooms/${roomName}`);
@@ -537,6 +593,7 @@ export default function ChatPage() {
         userUid: currentUser.uid,
         fileName: encryptedFileName,
         fileURL: encryptedFileURL,
+        caption: caption?.trim() || "", // Include caption
         timestamp: serverTimestamp(),
         replyTo: replyToId,
         isEncrypted: true,
@@ -547,15 +604,14 @@ export default function ChatPage() {
       const res = await fetch("/api/send-message", {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${idToken}`, // Attach token here
+          Authorization: `Bearer ${idToken}`,
         },
         body: formData,
       });
       const data = await res.json();
       console.log(data);
-      //await saveData(message.toRTDB(), `rooms/${roomName}/messages`, "push");
-
       setReplyToId(null);
+      //setCaptionInput("");
       fileInputRef.current.value = "";
     } catch (error) {
       console.error("File upload failed:", error);
