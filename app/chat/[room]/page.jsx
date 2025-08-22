@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { auth, db } from "@/config/firebase";
 import {
@@ -30,15 +30,8 @@ import Message from "@/models/message";
 import ImageMessage from "@/models/imageMessage";
 import { saveData } from "@/utils/database";
 
-const debounce = (func, wait) => {
-  let timeout;
-  return (...args) => {
-    clearTimeout(timeout);
-    timeout = setTimeout(() => func(...args), wait);
-  };
-};
-
 export default function ChatPage() {
+  // All state declarations first (always in the same order)
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [onlineUsers, setOnlineUsers] = useState([]);
@@ -49,84 +42,196 @@ export default function ChatPage() {
   const [hasMoreMessages, setHasMoreMessages] = useState(true);
   const [isInitialLoad, setIsInitialLoad] = useState(true);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const [replyToId, setReplyToId] = useState(null);
+
+  // All refs declarations (always in the same order)
   const fileInputRef = useRef(null);
   const messagesContainerRef = useRef(null);
   const oldestTimestampRef = useRef(null);
-  const typingTimeoutRef = useRef(null);
   const dropdownRef = useRef(null);
   const textareaRef = useRef(null);
+  const typingTimeoutRef = useRef(null);
+  const stopTypingTimeoutRef = useRef(null);
+  const lastTypingRef = useRef(0);
+  const isTypingRef = useRef(false);
 
+  // Router hooks (always in the same order)
   const router = useRouter();
   const params = useParams();
+  const searchParams = useSearchParams();
+
+  // Constants derived from hooks (always in the same order)
   const roomName = params.room;
   const messagesPerPage = 25;
-  const searchParams = useSearchParams();
-  const [replyToId, setReplyToId] = useState(searchParams.get("replyTo"));
 
-  const scrollToBottom = (behavior = "smooth") => {
-    const container = messagesContainerRef.current;
-    if (container && messages.length > 0) {
-      container.scrollTo({
-        top: container.scrollHeight,
-        behavior,
-      });
+  // Initialize replyToId from search params
+  useEffect(() => {
+    const replyTo = searchParams.get("replyTo");
+    if (replyTo) {
+      setReplyToId(replyTo);
     }
-  };
-  const handleKeyDown = (e) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      const value = textareaRef.current?.value || input; // Use ref or state
-      if (!value.endsWith(" ")) {
-        console.log("it does");
-        e.preventDefault();
-        sendMessage(e);
-      }
-    }
-  };
+  }, [searchParams]);
 
-  const updateTypingStatus = debounce(() => {
-    if (!currentUser || !input.trim()) return;
+  // Optimized typing functions with proper cleanup
+  const startTyping = useCallback(() => {
+    if (!currentUser || isTypingRef.current) return;
+
+    const now = Date.now();
+    // Only send typing indicator if it's been more than 2 seconds since last one
+    if (now - lastTypingRef.current < 2000) return;
+
+    isTypingRef.current = true;
+    lastTypingRef.current = now;
+
     saveData(
       {
         uid: currentUser.uid,
         displayName: currentUser.displayName || "Anonymous",
-        timestamp: serverTimestamp(), //Date.now(),
+        timestamp: serverTimestamp(),
       },
       `rooms/${roomName}/typingUsers/${currentUser.uid}`,
       "set"
     );
-  }, 500);
+  }, [currentUser, roomName]);
 
-  const handleReply = (messageId) => {
+  const stopTyping = useCallback(() => {
+    if (!currentUser || !isTypingRef.current) return;
+
+    isTypingRef.current = false;
+    saveData(null, `rooms/${roomName}/typingUsers/${currentUser.uid}`, "set");
+  }, [currentUser, roomName]);
+
+  const debouncedStartTyping = useCallback(() => {
+    if (typingTimeoutRef.current) {
+      clearTimeout(typingTimeoutRef.current);
+    }
+    typingTimeoutRef.current = setTimeout(startTyping, 300);
+  }, [startTyping]);
+
+  const debouncedStopTyping = useCallback(() => {
+    if (stopTypingTimeoutRef.current) {
+      clearTimeout(stopTypingTimeoutRef.current);
+    }
+    stopTypingTimeoutRef.current = setTimeout(stopTyping, 3000);
+  }, [stopTyping]);
+
+  const handleTyping = useCallback(() => {
+    debouncedStartTyping();
+    debouncedStopTyping();
+  }, [debouncedStartTyping, debouncedStopTyping]);
+
+  const handleStopTyping = useCallback(() => {
+    if (stopTypingTimeoutRef.current) {
+      clearTimeout(stopTypingTimeoutRef.current);
+    }
+    if (typingTimeoutRef.current) {
+      clearTimeout(typingTimeoutRef.current);
+    }
+    stopTyping();
+  }, [stopTyping]);
+
+  const scrollToBottom = useCallback(
+    (behavior = "smooth") => {
+      const container = messagesContainerRef.current;
+      if (container && messages.length > 0) {
+        container.scrollTo({
+          top: container.scrollHeight,
+          behavior,
+        });
+      }
+    },
+    [messages.length]
+  );
+
+  // Optimized input change handler
+  const handleInputChange = useCallback(
+    (e) => {
+      const value = e.target.value;
+      setInput(value);
+
+      if (value.trim()) {
+        handleTyping();
+      } else {
+        handleStopTyping();
+      }
+    },
+    [handleTyping, handleStopTyping]
+  );
+
+  // Optimized key down handler
+  const handleKeyDown = useCallback(
+    (e) => {
+      if (e.key === "Enter" && !e.shiftKey) {
+        const value = textareaRef.current?.value || input;
+        if (!value.endsWith(" ")) {
+          e.preventDefault();
+          handleStopTyping();
+          sendMessage(e);
+        }
+      }
+    },
+    [input, handleStopTyping]
+  );
+
+  const handleReply = useCallback((messageId) => {
     setReplyToId(messageId);
     if (textareaRef.current) textareaRef.current.focus();
-  };
+  }, []);
+
+  const cancelReply = useCallback(() => {
+    setReplyToId(null);
+  }, []);
+
+  const toggleDropdown = useCallback(() => {
+    setIsDropdownOpen((prev) => !prev);
+  }, []);
+
+  const handleClickOutside = useCallback((event) => {
+    if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+      setIsDropdownOpen(false);
+    }
+  }, []);
+
+  const handleInputResize = useCallback(() => {
+    const textarea = textareaRef.current;
+    if (textarea) {
+      textarea.style.height = "auto";
+      textarea.style.height = `${Math.min(textarea.scrollHeight, 120)}px`;
+    }
+  }, []);
+
+  // Batch cleanup operations
+  const cleanup = useCallback(async () => {
+    if (!currentUser) return;
+
+    const operations = [
+      saveData(null, `rooms/${roomName}/onlineUsers/${currentUser.uid}`, "set"),
+      saveData(null, `rooms/${roomName}/typingUsers/${currentUser.uid}`, "set"),
+    ];
+
+    try {
+      await Promise.all(operations);
+    } catch (error) {
+      console.error("Cleanup error:", error);
+    }
+  }, [currentUser, roomName]);
+
+  // Auto-resize textarea
   useEffect(() => {
     const textarea = textareaRef.current;
     if (textarea) {
       textarea.style.height = "auto";
-      textarea.style.height = `${Math.min(textarea.scrollHeight, 120)}px`; // Max height of 120px
+      textarea.style.height = `${Math.min(textarea.scrollHeight, 120)}px`;
     }
   }, [input]);
 
-  const cancelReply = () => {
-    setReplyToId(null);
-  };
-
-  const toggleDropdown = () => {
-    setIsDropdownOpen((prev) => !prev);
-  };
-
-  const handleClickOutside = (event) => {
-    if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
-      setIsDropdownOpen(false);
-    }
-  };
-
+  // Handle click outside dropdown
   useEffect(() => {
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
+  }, [handleClickOutside]);
 
+  // Auth state management
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (user) {
@@ -137,11 +242,10 @@ export default function ChatPage() {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${idToken}`, // Attach token here
+            Authorization: `Bearer ${idToken}`,
           },
           body: JSON.stringify({ roomName }),
         });
-        //console.log(response);
 
         if (!response.ok) throw new Error("Failed to fetch messages");
 
@@ -155,6 +259,7 @@ export default function ChatPage() {
     return () => unsubscribe();
   }, [router, roomName]);
 
+  // Messages listener with caching
   useEffect(() => {
     if (!currentUser) return;
 
@@ -174,8 +279,8 @@ export default function ChatPage() {
         }
       });
     }
-    const messagesRef = ref(db, `rooms/${roomName}/messages`);
 
+    const messagesRef = ref(db, `rooms/${roomName}/messages`);
     const unsubscribe = onChildAdded(
       messagesRef,
       async (snapshot) => {
@@ -184,18 +289,18 @@ export default function ChatPage() {
           console.warn("Invalid message:", msg);
           return;
         }
+
         const idToken = await auth.currentUser.getIdToken();
         try {
           const response = await fetch("/api/get-message", {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
-              Authorization: `Bearer ${idToken}`, // Attach token here
+              Authorization: `Bearer ${idToken}`,
             },
-            body: JSON.stringify({
-              message: msg,
-            }),
+            body: JSON.stringify({ message: msg }),
           });
+
           if (msg.type === "text") {
             msg.text = (await response.json()).text;
           } else if (msg.type === "file") {
@@ -207,6 +312,7 @@ export default function ChatPage() {
         } catch (error) {
           return; // Skip this message
         }
+
         setMessages((prev) => {
           if (prev.some((m) => m.id === msg.id)) return prev;
           const updatedMessages = [...prev, msg].sort(
@@ -225,11 +331,10 @@ export default function ChatPage() {
       }
     );
 
-    return () => {
-      unsubscribe();
-    };
+    return () => unsubscribe();
   }, [currentUser, roomName]);
 
+  // Auto-scroll management
   useEffect(() => {
     const container = messagesContainerRef.current;
     if (!container) return;
@@ -245,8 +350,9 @@ export default function ChatPage() {
         scrollToBottom("smooth");
       }
     }
-  }, [messages, isInitialLoad]);
+  }, [messages, isInitialLoad, scrollToBottom]);
 
+  // Load more messages on scroll
   useEffect(() => {
     if (!currentUser || !hasMoreMessages) return;
 
@@ -279,7 +385,7 @@ export default function ChatPage() {
           }
 
           setMessages((prev) => {
-            const updatedMessages = [...prev, ...prev].sort(
+            const updatedMessages = [...olderMessages, ...prev].sort(
               (a, b) => a.timestamp - b.timestamp
             );
             localStorage.setItem(
@@ -302,6 +408,7 @@ export default function ChatPage() {
     return () => messagesContainer.removeEventListener("scroll", handleScroll);
   }, [currentUser, isLoadingMore, hasMoreMessages, roomName]);
 
+  // Online users presence management
   useEffect(() => {
     if (!currentUser) return;
 
@@ -311,36 +418,24 @@ export default function ChatPage() {
         {
           uid: currentUser.uid,
           displayName: currentUser.displayName || "Anonymous",
-          lastSeen: serverTimestamp(), // Use client-side timestamp for consistency
+          lastSeen: serverTimestamp(),
         },
         userRef,
         "set"
       );
 
     updatePresence();
-    const interval = setInterval(updatePresence, 15000); // Update every 15 seconds
-
-    const handleUnload = () => {
-      if (currentUser?.uid) {
-        navigator.sendBeacon(
-          "/api/remove-user",
-          JSON.stringify({ room: roomName, uid: currentUser.uid })
-        );
-      }
-    };
-
-    window.addEventListener("beforeunload", handleUnload);
+    const interval = setInterval(updatePresence, 15000);
 
     return () => {
       clearInterval(interval);
       saveData(null, userRef, "set").catch((error) => {
         console.error("Error removing user on cleanup:", error);
       });
-      window.removeEventListener("beforeunload", handleUnload);
     };
   }, [currentUser, roomName]);
 
-  //online users
+  // Online users listener
   useEffect(() => {
     const onlineUsersRef = ref(db, `rooms/${roomName}/onlineUsers`);
     const unsubscribe = onValue(
@@ -367,25 +462,32 @@ export default function ChatPage() {
     return () => unsubscribe();
   }, [roomName]);
 
-  //typing
+  // Optimized typing users listener with throttling
   useEffect(() => {
     if (!currentUser) return;
+
+    let lastUpdate = 0;
+    const throttleDelay = 500; // Only update typing users every 500ms
 
     const typingRef = ref(db, `rooms/${roomName}/typingUsers`);
     const unsubscribe = onValue(
       typingRef,
       (snapshot) => {
-        const typingData = snapshot.val() || {};
         const now = Date.now();
-        const activeTypers = Object.values(typingData)
-          .filter(
-            (user) => user && user.timestamp && now - user.timestamp < 5000
-          )
-          .map((user) => ({
+        if (now - lastUpdate < throttleDelay) return;
+        lastUpdate = now;
+
+        const typingData = snapshot.val() || {};
+        const activeTypers = Object.entries(typingData)
+          .filter(([uid, user]) => {
+            if (!user?.timestamp || uid === currentUser.uid) return false;
+            return now - user.timestamp < 5000;
+          })
+          .map(([, user]) => ({
             uid: user.uid,
             displayName: user.displayName || "Anonymous",
-          }))
-          .filter((user) => user.uid !== currentUser.uid);
+          }));
+
         setTypingUsers(activeTypers);
       },
       (error) => {
@@ -395,57 +497,37 @@ export default function ChatPage() {
 
     return () => unsubscribe();
   }, [currentUser, roomName]);
+
+  // Enhanced beforeunload and cleanup handler
   useEffect(() => {
-    return () => {
-      if (currentUser) {
-        saveData(
-          null,
-          `rooms/${roomName}/typingUsers/${currentUser.uid}`,
-          "set"
+    const handleUnload = () => {
+      if (currentUser?.uid) {
+        // Use sendBeacon for reliable cleanup on page unload
+        navigator.sendBeacon(
+          "/api/cleanup-user",
+          JSON.stringify({
+            room: roomName,
+            uid: currentUser.uid,
+            operations: ["online", "typing"],
+          })
         );
-        if (typingTimeoutRef.current) {
-          clearTimeout(typingTimeoutRef.current);
-        }
       }
     };
-  }, [currentUser, roomName]);
 
-  const handleInputChange = (e) => {
-    setInput(e.target.value);
-    if (e.target.value.trim()) {
-      updateTypingStatus();
-      if (typingTimeoutRef.current) {
-        clearTimeout(typingTimeoutRef.current);
-      }
-      typingTimeoutRef.current = setTimeout(() => {
-        saveData(
-          null,
-          `rooms/${roomName}/typingUsers/${currentUser.uid}`,
-          "set"
-        );
-      }, 5000);
-    } else {
-      saveData(null, `rooms/${roomName}/typingUsers/${currentUser.uid}`, "set");
-    }
-  };
+    window.addEventListener("beforeunload", handleUnload);
 
-  useEffect(() => {
+    // Cleanup typing timeouts and status on unmount
     return () => {
-      if (currentUser) {
-        saveData(
-          null,
-          `rooms/${roomName}/typingUsers/${currentUser.uid}`,
-          "set"
-        );
-        if (typingTimeoutRef.current) {
-          clearTimeout(typingTimeoutRef.current);
-        }
-      }
+      window.removeEventListener("beforeunload", handleUnload);
+      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+      if (stopTypingTimeoutRef.current)
+        clearTimeout(stopTypingTimeoutRef.current);
+      cleanup();
     };
-  }, [currentUser, roomName]);
+  }, [currentUser, roomName, cleanup]);
 
   if (!currentUser) return <p>Loading...</p>;
-  //this is for text only
+
   const sendMessage = async (e) => {
     e.preventDefault();
     if (!input.trim()) return;
@@ -478,13 +560,10 @@ export default function ChatPage() {
         const data = await response.json();
         console.log(data);
       }
-      //await saveData(message.toRTDB(), `rooms/${roomName}/messages`, "push");
+
       setInput("");
       setReplyToId(null);
-      saveData(null, `rooms/${roomName}/typingUsers/${currentUser.uid}`, "set");
-      if (typingTimeoutRef.current) {
-        clearTimeout(typingTimeoutRef.current);
-      }
+      handleStopTyping();
     } catch (error) {
       console.error("Error sending message:", error);
       alert("Failed to send message.");
@@ -511,7 +590,7 @@ export default function ChatPage() {
       const caption = prompt("Enter a caption for the image (optional):");
       if (caption === null) {
         setIsUploading(false);
-        return; // User cancelled the prompt
+        return;
       }
 
       const formData = new FormData();
@@ -524,7 +603,7 @@ export default function ChatPage() {
         userUid: currentUser.uid,
         fileName: encryptedFileName,
         fileURL: encryptedFileURL,
-        caption: caption?.trim() || "", // Include caption
+        caption: caption?.trim() || "",
         timestamp: serverTimestamp(),
         replyTo: replyToId,
         isEncrypted: true,
@@ -542,7 +621,6 @@ export default function ChatPage() {
       const data = await res.json();
       console.log(data);
       setReplyToId(null);
-      //setCaptionInput("");
       fileInputRef.current.value = "";
     } catch (error) {
       console.error("File upload failed:", error);
@@ -553,13 +631,8 @@ export default function ChatPage() {
   };
 
   const handleSignOut = async () => {
-    const userRef = `rooms/${roomName}/onlineUsers/${currentUser.uid}`;
-    const typingRef = `rooms/${roomName}/typingUsers/${currentUser.uid}`;
     try {
-      await Promise.all([
-        saveData(null, userRef, "set"),
-        saveData(null, typingRef, "set"),
-      ]);
+      await cleanup();
       router.push("/");
     } catch (error) {
       console.error("Error signing out:", error);
@@ -567,13 +640,6 @@ export default function ChatPage() {
     }
   };
 
-  const handleInputResize = () => {
-    const textarea = textareaRef.current;
-    if (textarea) {
-      textarea.style.height = "auto";
-      textarea.style.height = `${Math.min(textarea.scrollHeight, 120)}px`;
-    }
-  };
   const repliedMessage = replyToId
     ? messages.find((msg) => msg.id === replyToId)
     : null;
@@ -615,6 +681,7 @@ export default function ChatPage() {
           )}
         </div>
       </div>
+
       <div className="fixed top-16 left-0 right-0 z-10 p-4 bg-gray-100 dark:bg-gray-900 text-sm text-gray-800 dark:text-gray-200 border-b border-gray-300 dark:border-gray-600">
         <h2 className="font-semibold mb-1">
           Online Users ({onlineUsers.length})
@@ -645,6 +712,7 @@ export default function ChatPage() {
           </div>
         )}
       </div>
+
       <div
         ref={messagesContainerRef}
         className="flex-1 overflow-y-auto p-4 space-y-2 mt-32 mb-20"
@@ -680,6 +748,7 @@ export default function ChatPage() {
           </div>
         ))}
       </div>
+
       <div className="fixed bottom-0 left-0 right-0 p-4 border-t bg-white dark:bg-gray-800">
         {repliedMessage && (
           <div className="mb-2 p-2 bg-gray-100 dark:bg-gray-600 rounded-lg text-sm flex justify-between items-center">
