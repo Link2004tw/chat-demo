@@ -28,6 +28,7 @@ export default function FileMessageItem({ message, messages, onReply }) {
       }
     }
   };
+  console.log(caption);
 
   return (
     <div
@@ -72,7 +73,7 @@ export default function FileMessageItem({ message, messages, onReply }) {
           >
             {fileName}
           </a>
-          {caption && typeof caption === "string" && (
+          {caption && typeof caption === "string" && caption !== "null" && (
             <p
               className={`text-sm italic mt-1 ${
                 isCurrentUser

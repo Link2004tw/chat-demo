@@ -67,7 +67,7 @@ export default function ImageMessageItem({ message, messages, onReply }) {
             className="max-w-full h-auto rounded-lg my-2"
             loading="lazy"
           />
-          {caption && typeof caption === "string" && (
+          {caption && typeof caption === "string" && caption !== "null" && (
             <p
               className={`text-sm italic mt-1 ${
                 isCurrentUser
