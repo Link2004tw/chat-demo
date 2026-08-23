@@ -1,0 +1,13 @@
+// app/api-doc/page.tsx    ← or app/docs/page.tsx or wherever you want
+'use client';
+
+import SwaggerUI from 'swagger-ui-react';
+import 'swagger-ui-react/swagger-ui.css';
+
+export default function ApiDoc() {
+    return (
+        <div style={{ height: '100vh' }}>
+            <SwaggerUI url="/api/swagger-json" />
+        </div>
+    );
+}

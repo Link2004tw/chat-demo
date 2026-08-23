@@ -1,262 +1,351 @@
-// app/chat/[room]/page.jsx
+// app/chat/[room]/page.tsx
 "use client";
 
-import { useEffect, useState, useRef } from "react";
-import { useParams, useRouter } from "next/navigation";
-import { auth, db } from "@/config/firebase";
-import {
-  ref,
-  onChildAdded,
-  query,
-  orderByChild,
-  limitToLast,
-  endBefore,
-  get,
-  set,
-  serverTimestamp,
-} from "firebase/database";
-import {
-  ArrowUpTrayIcon,
-  XMarkIcon,
-  EllipsisVerticalIcon,
-} from "@heroicons/react/24/outline";
-import { onAuthStateChanged } from "firebase/auth";
-import MessageItem from "@/app/components/MessageItem";
-import ImageMessageItem from "@/app/components/ImageMessageItem";
-import FileMessageItem from "@/app/components/FileMessageItem";
-import PrimaryButton from "@/app/components/PrimaryButton";
-import OutlinedButton from "@/app/components/OutlinedButton";
-import Cookies from "universal-cookie";
-import Message from "@/models/message";
-import ImageMessage from "@/models/imageMessage";
-import { getData, saveData } from "@/utils/database";
-import { decryptMessage } from "@/lib/fetchAndDecryptMessages"; // Import decryptMessage
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { useAuth } from "@clerk/nextjs";
 
-const cookies = new Cookies();
+import ChatHeader from "@/app/components/chat/ChatHeader";
+import MessagesList from "@/app/components/chat/ChatMessageList";
+import ChatInput from "@/app/components/chat/ChatInput";
+import { normalizeMessage } from "@/app/components/chat/HelperFunctions";
+const LIMIT = 30;
+import { useWebSocket } from "@/app/hooks/useWebSocket";
+import RoomDetailsSheet from "@/app/components/chat/Settings/SettingsSheets";
+import { useChats } from "@/app/store/chat-context";
+import AdminOnlyFooter from "@/app/components/chat/AdminOnlyFooter";
+import { debugLog } from '@/lib/logger';
 
-const debounce = (func, wait) => {
-  let timeout;
-  return (...args) => {
-    clearTimeout(timeout);
-    timeout = setTimeout(() => func(...args), wait);
-  };
-};
+export function useDebounce(callback, delay) {
+  const timeout = useRef(null);
 
-export default function ChatPage({
-  initialMessages = [],
-  roomName,
-  base64RoomKey,
-}) {
-  const [messages, setMessages] = useState(initialMessages);
-  const [input, setInput] = useState("");
-  const [replyToId, setReplyToId] = useState(null);
-  const [onlineUsers, setOnlineUsers] = useState([]);
-  const [typingUsers, setTypingUsers] = useState([]);
-  const [currentUser, setCurrentUser] = useState(null);
-  const [isUploading, setIsUploading] = useState(false);
-  const [isLoadingMore, setIsLoadingMore] = useState(false);
-  const [hasMoreMessages, setHasMoreMessages] = useState(true);
-  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
-  const [keyInput, setKeyInput] = useState("");
-  const [keyError, setKeyError] = useState(null);
-  const [showKeyModal, setShowKeyModal] = useState(false);
-  const [showCreatorModal, setShowCreatorModal] = useState(false);
-  const [generatedKey, setGeneratedKey] = useState(null);
-  const [encryptionKey, setEncryptionKey] = useState(null);
-  const [isCheckingRoom, setIsCheckingRoom] = useState(true);
-  const fileInputRef = useRef(null);
-  const messagesContainerRef = useRef(null);
-  const oldestTimestampRef = useRef(null);
-  const typingTimeoutRef = useRef(null);
-  const dropdownRef = useRef(null);
-
-  const router = useRouter();
-  const params = useParams();
-  const roomNameFromParams = params.room;
-  const messagesPerPage = 25;
-
-  // Initialize encryption key
-  useEffect(() => {
-    if (!currentUser || !roomNameFromParams || !base64RoomKey) return;
-
-    const checkRoom = async () => {
-      try {
-        setIsCheckingRoom(true);
-        const roomRef = ref(db, `rooms/${roomNameFromParams}`);
-        const snapshot = await getData(`rooms/${roomNameFromParams}`);
-        if (!snapshot.exists()) {
-          // Room doesn't exist; user is creator
-          const key = await crypto.subtle.generateKey(
-            { name: "AES-GCM", length: 256 },
-            true,
-            ["encrypt", "decrypt"]
-          );
-          const exportedKey = await crypto.subtle.exportKey("raw", key);
-          const base64Key = btoa(
-            String.fromCharCode(...new Uint8Array(exportedKey))
-          );
-          await saveData(
-            {
-              createdBy: currentUser.uid,
-              createdAt: serverTimestamp(),
-            },
-            `rooms/${roomNameFromParams}`
-          );
-          setGeneratedKey(base64Key);
-          setEncryptionKey(key);
-          setShowCreatorModal(true);
-        } else {
-          // Room exists; use provided base64RoomKey
-          const key = await getRoomKey(base64RoomKey);
-          setEncryptionKey(key);
-          setShowKeyModal(false);
-          setKeyError(null);
-        }
-      } catch (error) {
-        console.error("Error checking room:", error);
-        setKeyError("Failed to initialize room. Please try again.");
-      } finally {
-        setIsCheckingRoom(false);
-      }
-    };
-
-    checkRoom();
-  }, [currentUser, roomNameFromParams, base64RoomKey]);
-
-  // Update oldestTimestampRef based on initialMessages
-  useEffect(() => {
-    if (initialMessages.length > 0) {
-      oldestTimestampRef.current = Math.min(
-        ...initialMessages.map((m) => m.timestamp)
-      );
-    }
-  }, [initialMessages]);
-
-  // Real-time message subscription
-  useEffect(() => {
-    if (!currentUser || !encryptionKey || !roomNameFromParams) return;
-
-    const messagesRef = ref(db, `rooms/${roomNameFromParams}/messages`);
-    const messagesQuery = query(
-      messagesRef,
-      orderByChild("timestamp"),
-      limitToLast(messagesPerPage)
-    );
-
-    const unsubscribe = onChildAdded(
-      messagesQuery,
-      async (snapshot) => {
-        const msg = { ...snapshot.val(), id: snapshot.key };
-        if (!msg || !msg.timestamp) {
-          console.warn("Invalid message:", msg);
-          return;
-        }
-        if (msg.isEncrypted === true) {
-          try {
-            if (msg.type === "text") {
-              msg.text = await decryptMessage(msg.text, encryptionKey);
-            } else if (msg.type === "file") {
-              msg.fileName = await decryptMessage(msg.fileName, encryptionKey);
-              msg.fileURL = await decryptMessage(msg.fileURL, encryptionKey);
-            }
-          } catch (error) {
-            console.error("Decryption failed:", error);
-            msg.decryptionFailed = true;
-          }
-        }
-        setMessages((prev) => {
-          if (prev.some((m) => m.id === msg.id)) return prev;
-          const updatedMessages = [...prev, msg].sort(
-            (a, b) => a.timestamp - b.timestamp
-          );
-          localStorage.setItem(
-            `messages_${roomNameFromParams}`,
-            JSON.stringify(updatedMessages)
-          );
-          oldestTimestampRef.current = updatedMessages[0]?.timestamp || null;
-          return updatedMessages;
-        });
-      },
-      (error) => {
-        console.error("Error fetching messages:", error);
-      }
-    );
-
-    return () => unsubscribe();
-  }, [currentUser, encryptionKey, roomNameFromParams]);
-
-  // ... (rest of the existing useEffect hooks and functions remain unchanged)
-
-  // Render logic
-  if (!currentUser || isCheckingRoom)
-    return (
-      <p className="text-center text-gray-500 dark:text-gray-400">Loading...</p>
-    );
-
-  return (
-    <div className="h-screen flex flex-col bg-gray-100 dark:bg-gray-900">
-      {/* Existing modals and UI remain unchanged */}
-      <div className="fixed top-0 left-0 right-0 z-20 p-4 bg-blue-600 text-white text-lg font-semibold flex justify-between items-center">
-        <span>Chat Room: {roomNameFromParams}</span>
-        {/* ... existing dropdown code ... */}
-      </div>
-      <div className="fixed top-16 left-0 right-0 z-10 p-4 bg-gray-100 dark:bg-gray-900 text-sm text-gray-800 dark:text-gray-200 border-b border-gray-300 dark:border-gray-600">
-        {/* ... existing online users and typing users code ... */}
-      </div>
-      <div
-        ref={messagesContainerRef}
-        className="flex-1 overflow-y-auto p-4 space-y-2 mt-32 mb-20"
-      >
-        {isLoadingMore && (
-          <div className="text-center text-gray-500 dark:text-gray-400">
-            Loading more messages...
-          </div>
-        )}
-        {messages.map((msg) => (
-          <div key={msg.id} data-message-id={msg.id}>
-            {msg.decryptionFailed ? (
-              <p className="text-red-500 text-sm">
-                Unable to decrypt message (incorrect key)
-              </p>
-            ) : msg.type === "text" ? (
-              <MessageItem
-                message={msg}
-                messages={messages}
-                onReply={handleReply}
-              />
-            ) : msg.type === "file" ? (
-              /\.(png|jpe?g|gif|webp)$/i.test(msg.fileName) ? (
-                <ImageMessageItem
-                  message={msg}
-                  messages={messages}
-                  onReply={handleReply}
-                />
-              ) : (
-                <FileMessageItem
-                  message={msg}
-                  messages={messages}
-                  onReply={handleReply}
-                />
-              )
-            ) : null}
-          </div>
-        ))}
-      </div>
-      <div className="fixed bottom-0 left-0 right-0 p-4 border-t bg-white dark:bg-gray-800">
-        {/* ... existing form and input code ... */}
-      </div>
-    </div>
-  );
+  return useCallback(() => {
+    if (timeout.current) clearTimeout(timeout.current);
+    timeout.current = setTimeout(callback, delay);
+  }, [callback, delay]);
 }
 
-// Helper function to import key (copied from fetchAndDecryptMessages.ts)
-async function getRoomKey(base64Key) {
-  const keyBytes = Uint8Array.from(atob(base64Key), (c) => c.charCodeAt(0));
-  return await crypto.subtle.importKey(
-    "raw",
-    keyBytes,
-    { name: "AES-GCM" },
-    false,
-    ["decrypt"]
+export default function ChatPage() {
+  const { isLoaded, isSignedIn, getToken, userId } = useAuth();
+  const { room } = useParams();
+  const roomId = room;
+  const [messages, setMessages] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
+  const [beforeCursor, setBeforeCursor] = useState(null);
+  const [name, setName] = useState("Chat Room");
+  const [token, setToken] = useState(null);
+  const [replyingTo, setReplyingTo] = useState(null);
+  const {
+    isConnected,
+    sendMessage,
+    subscribeToMessages,
+    sendFile,
+    deleteMessage,
+    editMessage,
+    sendTyping,
+    onlineUsers,
+  } = useWebSocket(roomId, token, isSignedIn);
+  const [highlightedMessageId, setHighlightedMessageId] = useState(null);
+  const { markChatAsRead } = useChats();
+  const [isDm, setIsDm] = useState(false);
+  const params = useSearchParams();
+  const [open, setOpen] = useState(false);
+  const [typingUsers, setTypingUsers] = useState([]);
+  const router = useRouter();
+  const [canSendMessages, setCanSendMessages] = useState();
+  const [participants, setParticipants] = useState([]);
+
+  const handleDeleteMessage = (messageId) => {
+    setMessages((prev) => prev.filter((msg) => msg._id !== messageId));
+    deleteMessage(messageId);
+    // Also send delete via WebSocket
+  };
+  function showTypingIndicator(userId, username) {
+    setTypingUsers((prev) => {
+      if (prev.some((u) => u.userId === userId)) return prev; // already shown
+      return [...prev, { userId, username }];
+    });
+
+    // Remove after 2 seconds of inactivity
+    setTimeout(() => {
+      setTypingUsers((prev) => prev.filter((u) => u.userId !== userId));
+    }, 2000);
+  }
+
+  const fetchMessages = useCallback(
+    async (loadMore = false) => {
+      if (!isLoaded || !isSignedIn || !roomId) return;
+
+      if (loadMore) setLoadingMore(true);
+      else setLoading(true);
+
+      try {
+        const params = new URLSearchParams({ limit: LIMIT.toString() });
+
+        if (loadMore && beforeCursor) {
+          params.append("before", beforeCursor);
+        }
+
+        const res = await fetch(`/api/chat/${roomId}/messages?${params}`);
+
+        if (!res.ok) {
+          if (res.status === 404) {
+            setName("Room not found");
+            setHasMore(false);
+            return;
+          }
+          throw new Error("Failed to load messages");
+        }
+        const d = await res.json();
+        debugLog(d);
+        const {
+          messages: newMessages,
+          name: roomName,
+          more,
+          nextCursor,
+          isDm: isdm,
+          canSendMessages,
+        } = d;
+        setName(roomName || "Chat Room");
+        setHasMore(more);
+        setBeforeCursor(nextCursor);
+        setIsDm(isdm);
+        setCanSendMessages(canSendMessages);
+
+        const normalized = newMessages.map(normalizeMessage);
+
+        setMessages((prev) => {
+          const existingIds = new Set(prev.map((m) => m._id));
+          const filteredNew = normalized.filter((m) => !existingIds.has(m._id));
+          const combined = [...prev, ...filteredNew];
+
+          return combined.sort(
+            (a, b) => new Date(a.createdAt || 0) - new Date(b.createdAt || 0),
+          );
+        });
+
+        setHasMore(newMessages.length === LIMIT);
+      } catch (err) {
+        console.error("Error fetching messages:", err);
+      } finally {
+        setLoading(false);
+        setLoadingMore(false);
+      }
+    },
+    [roomId, isLoaded, isSignedIn, beforeCursor],
+  );
+
+  useEffect(() => {
+    const r = params.get("replyTo");
+    if (r) {
+      const msg = messages.find((m) => m._id === r);
+      if (msg) {
+        setReplyingTo(msg);
+      }
+    }
+  }, [params.get("replyTo"), messages]);
+
+  // Reset state when room changes
+  useEffect(() => {
+    setMessages([]);
+    setBeforeCursor(null);
+    setHasMore(true);
+    setLoading(true);
+    if (roomId) markChatAsRead(roomId);
+  }, [roomId, markChatAsRead]);
+
+  useEffect(() => {
+    if (isLoaded && isSignedIn) {
+      getToken().then(setToken);
+    }
+  }, [isLoaded, isSignedIn, getToken]);
+
+  useEffect(() => {
+    if (!subscribeToMessages) return;
+
+    const unsubscribe = subscribeToMessages((incomingMsg) => {
+      if (incomingMsg.type === "typing") {
+        showTypingIndicator(incomingMsg.userId, incomingMsg.username);
+        return;
+      }
+      if (incomingMsg.type === "room-update") {
+        markChatAsRead(roomId);
+        setMessages((prev) => {
+          if (prev.some((m) => m._id === incomingMsg._id)) return prev;
+          return [...prev, normalizeMessage(incomingMsg)].sort(
+            (a, b) => new Date(a.createdAt || 0) - new Date(b.createdAt || 0),
+          );
+        });
+        debugLog("room update: ", incomingMsg);
+        if (incomingMsg.name) {
+          setName(incomingMsg.name);
+        }
+        return;
+      }
+      setMessages((prev) => {
+        const normalized = normalizeMessage(incomingMsg);
+
+        switch (normalized.type) {
+          case "message":
+            markChatAsRead(roomId);
+            if (prev.some((m) => m._id === normalized._id)) return prev;
+            return [...prev, normalized].sort(
+              (a, b) => new Date(a.createdAt || 0) - new Date(b.createdAt || 0),
+            );
+
+          case "edit":
+            markChatAsRead(roomId);
+            return prev.map((m) =>
+              m._id === normalized.messageId
+                ? { ...m, content: normalized.content, isEdited: true }
+                : m,
+            );
+          case "kick":
+            markChatAsRead(roomId);
+            if (prev.some((m) => m._id === normalized._id)) return prev;
+            debugLog(normalized);
+            normalized.contentType = "system";
+            return [...prev, normalized].sort(
+              (a, b) => new Date(a.createdAt || 0) - new Date(b.createdAt || 0),
+            );
+          case "leave-chat":
+            markChatAsRead(roomId);
+            if (prev.some((m) => m._id === normalized._id)) return prev;
+            debugLog(normalized);
+            normalized.contentType = "system";
+            return [...prev, normalized].sort(
+              (a, b) => new Date(a.createdAt || 0) - new Date(b.createdAt || 0),
+            );
+          case "invited":
+            markChatAsRead(roomId);
+            if (prev.some((m) => m._id === normalized._id)) return prev;
+            debugLog(normalized);
+            normalized.contentType = "system";
+            return [...prev, normalized].sort(
+              (a, b) => new Date(a.createdAt || 0) - new Date(b.createdAt || 0),
+            );
+          case "delete":
+            markChatAsRead(roomId);
+            return prev.filter((m) => m._id !== normalized.messageId);
+
+          default:
+            return prev;
+        }
+      });
+    });
+
+    return () => unsubscribe();
+  }, [subscribeToMessages]);
+
+  // Load initial messages
+  useEffect(() => {
+    if (isLoaded && isSignedIn && roomId) {
+      fetchMessages(false);
+    }
+  }, [isLoaded, isSignedIn, roomId, token]);
+
+  useEffect(() => {
+    if (!roomId) return;
+    fetch(`/api/chat/${roomId}/info`)
+      .then((r) => r.json())
+      .then((data) => setParticipants(data.participants || []))
+      .catch(() => {});
+  }, [roomId]);
+
+  const goToMediaPage = () => {
+    router.push(`/chat/${roomId}/media`);
+  };
+  const handleSearchResult = (messageId) => {
+    debugLog(messageId);
+    setHighlightedMessageId(messageId);
+    // Clear highlight after 2 seconds
+    setTimeout(() => {
+      setHighlightedMessageId(null);
+    }, 2500);
+  };
+
+  const handleLoadMore = useCallback(() => {
+    if (!loadingMore && hasMore) {
+      fetchMessages(true);
+    }
+  }, [fetchMessages, loadingMore, hasMore]);
+
+  if (!isLoaded || loading) {
+    return (
+      <div className="flex h-screen items-center justify-center">
+        Loading chat...
+      </div>
+    );
+  }
+
+  if (!isSignedIn) {
+    return (
+      <div className="flex h-screen items-center justify-center">
+        Please sign in
+      </div>
+    );
+  }
+
+  const isMutedByUser = participants.some((p) => p.user._id === userId && p.mutedByUser);
+
+  return (
+    <div className="flex h-screen flex-col bg-gray-100 dark:bg-gray-900 overflow-y-auto ">
+      <ChatHeader
+        onlineUsers={onlineUsers}
+        typingUsers={typingUsers}
+        isDm={isDm}
+        goToMediaPage={goToMediaPage}
+        isConnected={isConnected}
+        name={name}
+        onBack={() => router.push("/")}
+        goToRoomDetails={() => setOpen(true)}
+        messages={messages}
+        onSearchResult={handleSearchResult}
+        roomId={roomId}
+        isMutedByUser={isMutedByUser}
+      />
+      <RoomDetailsSheet
+        open={open}
+        onOpenChange={setOpen}
+        roomId={roomId}
+        onNameChange={setName}
+        onParticipantsChange={() => {
+          fetch(`/api/chat/${roomId}/info`)
+            .then((r) => r.json())
+            .then((data) => setParticipants(data.participants || []))
+            .catch(() => {});
+        }}
+      />
+      <MessagesList
+        messages={messages}
+        loading={loading}
+        loadingMore={loadingMore}
+        hasMore={hasMore}
+        userId={userId}
+        onLoadMore={handleLoadMore}
+        onReply={setReplyingTo}
+        onDelete={handleDeleteMessage}
+        onEdit={editMessage}
+        highlightedMessageId={highlightedMessageId}
+        onHighlightClear={() => setHighlightedMessageId(null)}
+      />
+
+      {canSendMessages === "admins" ? (
+        <AdminOnlyFooter />
+      ) : (
+        <ChatInput
+          sendMessage={(content) => {
+            sendMessage(content, replyingTo?._id);
+          }}
+          sendFile={sendFile}
+          isConnected={isConnected}
+          replyingTo={replyingTo}
+          setReplyingTo={setReplyingTo}
+          onTyping={sendTyping}
+        />
+      )}
+    </div>
   );
 }
